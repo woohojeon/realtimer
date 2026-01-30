@@ -1,0 +1,425 @@
+/* ========================
+   Lecture Lens - Audience CSS
+   ======================== */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    /* Light Theme */
+    --bg-main: #F7F8FC;
+    --bg-card: #FFFFFF;
+    --bg-input: #F0F1F5;
+    --primary: #7C5CFC;
+    --primary-hover: #6B4FE0;
+    --secondary: #5B8DEF;
+    --text-primary: #2D3748;
+    --text-secondary: #718096;
+    --text-dim: #A0AEC0;
+    --border: #E2E8F0;
+    --success: #26DE81;
+    --danger: #FC5C65;
+    --shadow: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="dark"] {
+    --bg-main: #1a1a2e;
+    --bg-card: #1f2940;
+    --bg-input: #2a3a5a;
+    --primary: #7C5CFC;
+    --primary-hover: #9B7DFF;
+    --secondary: #5B8DEF;
+    --text-primary: #E8E8E8;
+    --text-secondary: #A0AEC0;
+    --text-dim: #6B7280;
+    --border: #374151;
+    --success: #26DE81;
+    --danger: #FC5C65;
+    --shadow: rgba(0, 0, 0, 0.3);
+}
+
+html, body {
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    transition: background-color 0.3s, color 0.3s;
+}
+
+.container {
+    min-height: 100%;
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* Header */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    background: var(--bg-card);
+    border-radius: 16px;
+    box-shadow: 0 2px 8px var(--shadow);
+}
+
+.header h1 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.connection-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    transition: background 0.3s;
+}
+
+.status-dot.connected {
+    background: var(--success);
+    box-shadow: 0 0 8px var(--success);
+}
+
+.status-dot.error {
+    background: var(--danger);
+}
+
+/* Language Section */
+.language-section {
+    background: var(--bg-card);
+    padding: 20px;
+    border-radius: 16px;
+    box-shadow: 0 2px 8px var(--shadow);
+}
+
+.language-section label {
+    display: block;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+}
+
+.language-select {
+    width: 100%;
+    padding: 14px 16px;
+    font-size: 1rem;
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: border-color 0.3s, background 0.3s;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23718096'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+}
+
+.language-select:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+/* Subtitle Section */
+.subtitle-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.subtitle-container {
+    flex: 1;
+    background: var(--bg-card);
+    padding: 30px 25px;
+    border-radius: 16px;
+    box-shadow: 0 2px 8px var(--shadow);
+    display: flex;
+    flex-direction: column;
+    min-height: 200px;
+}
+
+.subtitle-status {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    margin-bottom: 15px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid var(--border);
+}
+
+.subtitle-status.processing {
+    color: var(--secondary);
+}
+
+.subtitle-status.final {
+    color: var(--success);
+}
+
+.subtitle-text {
+    flex: 1;
+    font-size: 1.5rem;
+    line-height: 1.6;
+    color: var(--text-primary);
+    word-break: keep-all;
+    overflow-wrap: break-word;
+}
+
+.subtitle-text.realtime {
+    color: var(--secondary);
+}
+
+.subtitle-text.final {
+    color: var(--text-primary);
+}
+
+/* TTS Section */
+.tts-section {
+    background: var(--bg-card);
+    padding: 20px;
+    border-radius: 16px;
+    box-shadow: 0 2px 8px var(--shadow);
+}
+
+.tts-toggle {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 15px;
+}
+
+.tts-label {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* Toggle Switch */
+.switch {
+    position: relative;
+    width: 52px;
+    height: 28px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--bg-input);
+    border: 2px solid var(--border);
+    transition: 0.3s;
+    border-radius: 28px;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 20px;
+    width: 20px;
+    left: 2px;
+    bottom: 2px;
+    background-color: var(--text-dim);
+    transition: 0.3s;
+    border-radius: 50%;
+}
+
+input:checked + .slider {
+    background-color: var(--primary);
+    border-color: var(--primary);
+}
+
+input:checked + .slider:before {
+    transform: translateX(24px);
+    background-color: white;
+}
+
+/* TTS Controls */
+.tts-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    padding-top: 15px;
+    border-top: 1px solid var(--border);
+}
+
+.speed-control {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.speed-control label {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    min-width: 50px;
+}
+
+.speed-control input[type="range"] {
+    flex: 1;
+    height: 6px;
+    -webkit-appearance: none;
+    background: var(--bg-input);
+    border-radius: 3px;
+    outline: none;
+}
+
+.speed-control input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 20px;
+    height: 20px;
+    background: var(--primary);
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+#speedValue {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    min-width: 40px;
+    text-align: right;
+}
+
+.btn-speak {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 20px;
+    font-size: 1rem;
+    font-weight: 600;
+    color: white;
+    background: linear-gradient(135deg, var(--primary), var(--secondary));
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: transform 0.2s, opacity 0.2s;
+}
+
+.btn-speak:hover:not(:disabled) {
+    transform: translateY(-2px);
+}
+
+.btn-speak:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-speak svg {
+    width: 20px;
+    height: 20px;
+}
+
+.btn-speak.speaking {
+    background: linear-gradient(135deg, var(--danger), #ff8787);
+}
+
+/* Theme Toggle */
+.theme-toggle {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: var(--bg-card);
+    border: 2px solid var(--border);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px var(--shadow);
+    transition: transform 0.2s;
+}
+
+.theme-toggle:hover {
+    transform: scale(1.1);
+}
+
+.theme-toggle svg {
+    width: 24px;
+    height: 24px;
+    fill: var(--text-primary);
+}
+
+.sun-icon {
+    display: none;
+}
+
+[data-theme="dark"] .sun-icon {
+    display: block;
+}
+
+[data-theme="dark"] .moon-icon {
+    display: none;
+}
+
+/* Animations */
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.subtitle-text.processing {
+    animation: pulse 1.5s infinite;
+}
+
+/* Mobile Optimization */
+@media (max-width: 480px) {
+    .container {
+        padding: 15px;
+        gap: 15px;
+    }
+
+    .header {
+        padding: 12px 15px;
+    }
+
+    .header h1 {
+        font-size: 1.2rem;
+    }
+
+    .subtitle-text {
+        font-size: 1.3rem;
+    }
+
+    .subtitle-container {
+        padding: 20px;
+        min-height: 180px;
+    }
+}
+
+/* Safe area for notch devices */
+@supports (padding-top: env(safe-area-inset-top)) {
+    .container {
+        padding-top: calc(20px + env(safe-area-inset-top));
+        padding-bottom: calc(20px + env(safe-area-inset-bottom));
+    }
+}

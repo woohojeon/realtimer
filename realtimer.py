@@ -12,6 +12,14 @@ import sys
 import time
 import ctypes
 
+# 웹 서버 (청중용 QR TTS)
+try:
+    from web_server import web_server
+    WEB_SERVER_SUPPORT = True
+except Exception as e:
+    WEB_SERVER_SUPPORT = False
+    print(f"[INFO] web_server not available. QR feature disabled. ({e})")
+
 # ========================
 # Windows 둥근 모서리 및 리사이즈 헬퍼
 # ========================
@@ -1900,6 +1908,33 @@ class SubtitleOverlay(ResizableWindow):
         btn_container = tk.Frame(control_frame, bg=COLORS['bg_card'])
         btn_container.pack(side="right", padx=10, pady=8)
 
+        # QR 코드 버튼 (웹 서버 지원 시)
+        if WEB_SERVER_SUPPORT:
+            self.qr_btn = tk.Label(
+                btn_container,
+                text="QR",
+                font=("Segoe UI", 9, "bold"),
+                fg=COLORS['secondary'],
+                bg=COLORS['bg_card'],
+                cursor="hand2",
+                padx=8
+            )
+            self.qr_btn.pack(side="left", padx=3)
+            self.qr_btn.bind("<Button-1>", lambda e: self.show_qr_popup())
+            self.qr_btn.bind("<Enter>", lambda e: self.qr_btn.config(fg=COLORS['primary']))
+            self.qr_btn.bind("<Leave>", lambda e: self.qr_btn.config(fg=COLORS['secondary']))
+
+            # 접속자 수 표시
+            self.client_count_label = tk.Label(
+                btn_container,
+                text="0",
+                font=("Segoe UI", 8),
+                fg=COLORS['text_dim'],
+                bg=COLORS['bg_card'],
+                padx=2
+            )
+            self.client_count_label.pack(side="left", padx=(0, 5))
+
         # 다크모드 토글 버튼
         self.dark_btn = tk.Label(
             btn_container,
@@ -2013,6 +2048,156 @@ class SubtitleOverlay(ResizableWindow):
         # 둥근 모서리 적용
         self.root.update_idletasks()
         apply_rounded_corners(self.root)
+
+        # 웹 서버 시작 (청중용 QR TTS)
+        if WEB_SERVER_SUPPORT:
+            self.start_web_server()
+            # 접속자 수 업데이트 타이머
+            self.root.after(2000, self.update_client_count)
+
+    def start_web_server(self):
+        """청중용 웹 서버 시작"""
+        try:
+            web_server.set_languages(LANGUAGES, source_language, target_languages)
+            web_server.start()
+            print(f"[WebServer] QR URL: {web_server.get_url()}")
+        except Exception as e:
+            print(f"[WebServer] Failed to start: {e}")
+
+    def update_client_count(self):
+        """접속자 수 업데이트"""
+        if WEB_SERVER_SUPPORT and hasattr(self, 'client_count_label'):
+            count = web_server.get_client_count()
+            self.client_count_label.config(text=str(count))
+            if count > 0:
+                self.client_count_label.config(fg=COLORS['success'])
+            else:
+                self.client_count_label.config(fg=COLORS['text_dim'])
+        self.root.after(2000, self.update_client_count)
+
+    def show_qr_popup(self):
+        """QR 코드 팝업 표시"""
+        if not WEB_SERVER_SUPPORT:
+            return
+
+        qr_window = tk.Toplevel(self.root)
+        qr_window.title("QR Code - Audience Access")
+        qr_window.geometry("400x500")
+        qr_window.configure(bg=COLORS['bg_card'])
+        qr_window.attributes("-topmost", True)
+
+        # 제목
+        title_label = tk.Label(
+            qr_window,
+            text="Scan to Join",
+            font=("Segoe UI", 18, "bold"),
+            fg=COLORS['text_primary'],
+            bg=COLORS['bg_card']
+        )
+        title_label.pack(pady=(30, 10))
+
+        # 설명
+        desc_label = tk.Label(
+            qr_window,
+            text="Audience can scan this QR code\nto receive real-time translated subtitles with TTS",
+            font=("Segoe UI", 10),
+            fg=COLORS['text_secondary'],
+            bg=COLORS['bg_card'],
+            justify="center"
+        )
+        desc_label.pack(pady=(0, 20))
+
+        # QR 코드 이미지
+        qr_base64 = web_server.get_qr_code()
+        if qr_base64:
+            import base64
+            from io import BytesIO
+            try:
+                from PIL import Image, ImageTk
+                # Base64 디코딩
+                img_data = base64.b64decode(qr_base64.split(',')[1])
+                img = Image.open(BytesIO(img_data))
+                img = img.resize((250, 250), Image.LANCZOS)
+                photo = ImageTk.PhotoImage(img)
+
+                qr_label = tk.Label(qr_window, image=photo, bg=COLORS['bg_card'])
+                qr_label.image = photo  # 참조 유지
+                qr_label.pack(pady=10)
+            except ImportError:
+                # PIL 없으면 URL만 표시
+                qr_label = tk.Label(
+                    qr_window,
+                    text="[QR Code]\n(Install Pillow for image)",
+                    font=("Segoe UI", 12),
+                    fg=COLORS['text_dim'],
+                    bg=COLORS['bg_card']
+                )
+                qr_label.pack(pady=30)
+
+        # URL 표시
+        url = web_server.get_url()
+        url_label = tk.Label(
+            qr_window,
+            text=url,
+            font=("Segoe UI", 12),
+            fg=COLORS['primary'],
+            bg=COLORS['bg_card'],
+            cursor="hand2"
+        )
+        url_label.pack(pady=15)
+
+        # URL 복사 버튼
+        def copy_url():
+            qr_window.clipboard_clear()
+            qr_window.clipboard_append(url)
+            copy_btn.config(text="Copied!")
+            qr_window.after(1500, lambda: copy_btn.config(text="Copy URL"))
+
+        copy_btn = tk.Button(
+            qr_window,
+            text="Copy URL",
+            font=("Segoe UI", 10),
+            fg="white",
+            bg=COLORS['primary'],
+            activebackground=COLORS['primary_hover'],
+            activeforeground="white",
+            relief="flat",
+            padx=20,
+            pady=8,
+            cursor="hand2",
+            command=copy_url
+        )
+        copy_btn.pack(pady=10)
+
+        # 접속자 수
+        client_frame = tk.Frame(qr_window, bg=COLORS['bg_card'])
+        client_frame.pack(pady=20)
+
+        client_icon = tk.Label(
+            client_frame,
+            text="Connected:",
+            font=("Segoe UI", 10),
+            fg=COLORS['text_secondary'],
+            bg=COLORS['bg_card']
+        )
+        client_icon.pack(side="left", padx=5)
+
+        client_count = tk.Label(
+            client_frame,
+            text=str(web_server.get_client_count()),
+            font=("Segoe UI", 14, "bold"),
+            fg=COLORS['success'],
+            bg=COLORS['bg_card']
+        )
+        client_count.pack(side="left")
+
+        # 접속자 수 업데이트
+        def update_popup_count():
+            if qr_window.winfo_exists():
+                client_count.config(text=str(web_server.get_client_count()))
+                qr_window.after(1000, update_popup_count)
+
+        update_popup_count()
 
     def start_drag(self, event):
         self.drag_x = event.x
@@ -2256,6 +2441,11 @@ Text: {source_text}"""
         try:
             while True:
                 msg_type, data = subtitle_queue.get_nowait()
+
+                # 웹 서버로 브로드캐스트 (청중용 TTS)
+                if WEB_SERVER_SUPPORT:
+                    web_server.broadcast_subtitle(msg_type, data)
+
                 if msg_type == "realtime":
                     if data != last_realtime_translation:
                         last_realtime_translation = data

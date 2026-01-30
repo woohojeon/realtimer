@@ -1,0 +1,194 @@
+# -*- coding: utf-8 -*-
+"""
+QR 기반 청중용 실시간 번역 TTS 웹 서버
+"""
+import socket
+import threading
+import qrcode
+import io
+import base64
+from flask import Flask, render_template, jsonify
+from flask_socketio import SocketIO, emit
+
+# Flask 앱 설정
+app = Flask(__name__)
+app.config['SECRET_KEY'] = 'lecture-lens-secret-key'
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+
+# 전역 상태
+connected_clients = 0
+available_languages = {}
+current_subtitles = {}
+source_language_info = {}
+
+
+def get_local_ip():
+    """로컬 네트워크 IP 주소 가져오기"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except:
+        return "127.0.0.1"
+
+
+def generate_qr_code(url):
+    """QR 코드 생성 (Base64 이미지 반환)"""
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(url)
+    qr.make(fit=True)
+
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    # 이미지를 Base64로 변환
+    buffer = io.BytesIO()
+    img.save(buffer, format='PNG')
+    buffer.seek(0)
+    img_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+
+    return f"data:image/png;base64,{img_base64}"
+
+
+class WebServer:
+    """청중용 웹 서버 클래스"""
+
+    def __init__(self, port=5000):
+        self.port = port
+        self.server_thread = None
+        self.is_running = False
+        self.server_url = None
+        self.qr_code_base64 = None
+
+    def set_languages(self, languages_dict, source_lang, target_langs):
+        """사용 가능한 언어 설정"""
+        global available_languages, source_language_info
+        available_languages = {
+            code: languages_dict[code]
+            for code in target_langs
+            if code in languages_dict
+        }
+        source_language_info = languages_dict.get(source_lang, {})
+
+    def broadcast_subtitle(self, msg_type, data):
+        """모든 클라이언트에게 자막 브로드캐스트"""
+        global current_subtitles
+
+        if msg_type in ("realtime", "final"):
+            current_subtitles = data if isinstance(data, dict) else {}
+            socketio.emit('subtitle_update', {
+                'type': msg_type,
+                'data': data,
+                'source_lang': source_language_info
+            })
+        elif msg_type == "recognized":
+            socketio.emit('subtitle_update', {
+                'type': 'processing',
+                'data': {},
+                'source_lang': source_language_info
+            })
+
+    def start(self):
+        """서버 시작"""
+        if self.is_running:
+            return
+
+        local_ip = get_local_ip()
+        self.server_url = f"http://{local_ip}:{self.port}"
+        self.qr_code_base64 = generate_qr_code(self.server_url)
+
+        def run_server():
+            socketio.run(app, host='0.0.0.0', port=self.port, debug=False, use_reloader=False)
+
+        self.server_thread = threading.Thread(target=run_server, daemon=True)
+        self.server_thread.start()
+        self.is_running = True
+        print(f"[WebServer] Started at {self.server_url}")
+
+    def stop(self):
+        """서버 중지"""
+        self.is_running = False
+        print("[WebServer] Stopped")
+
+    def get_qr_code(self):
+        """QR 코드 이미지 (Base64) 반환"""
+        return self.qr_code_base64
+
+    def get_url(self):
+        """서버 URL 반환"""
+        return self.server_url
+
+    def get_client_count(self):
+        """연결된 클라이언트 수 반환"""
+        return connected_clients
+
+
+# 웹 서버 싱글톤 인스턴스
+web_server = WebServer()
+
+
+# ========================
+# Flask Routes
+# ========================
+@app.route('/')
+def index():
+    """청중용 메인 페이지"""
+    return render_template('audience.html')
+
+
+@app.route('/api/languages')
+def get_languages():
+    """사용 가능한 언어 목록 반환"""
+    return jsonify({
+        'languages': available_languages,
+        'source': source_language_info
+    })
+
+
+@app.route('/api/current')
+def get_current():
+    """현재 자막 상태 반환"""
+    return jsonify({
+        'subtitles': current_subtitles,
+        'source': source_language_info
+    })
+
+
+# ========================
+# SocketIO Events
+# ========================
+@socketio.on('connect')
+def handle_connect():
+    """클라이언트 연결"""
+    global connected_clients
+    connected_clients += 1
+    print(f"[WebServer] Client connected. Total: {connected_clients}")
+    # 현재 자막 전송
+    emit('subtitle_update', {
+        'type': 'current',
+        'data': current_subtitles,
+        'source_lang': source_language_info
+    })
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """클라이언트 연결 해제"""
+    global connected_clients
+    connected_clients = max(0, connected_clients - 1)
+    print(f"[WebServer] Client disconnected. Total: {connected_clients}")
+
+
+@socketio.on('request_languages')
+def handle_request_languages():
+    """언어 목록 요청"""
+    emit('languages_update', {
+        'languages': available_languages,
+        'source': source_language_info
+    })
