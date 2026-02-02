@@ -1,14 +1,24 @@
 # -*- coding: utf-8 -*-
 """
 QR 기반 청중용 실시간 번역 TTS 웹 서버
+ngrok 자동 터널링 지원
 """
 import socket
 import threading
 import qrcode
 import io
 import base64
+import os
 from flask import Flask, render_template, jsonify
 from flask_socketio import SocketIO, emit
+
+# ngrok 지원
+try:
+    from pyngrok import ngrok, conf
+    NGROK_SUPPORT = True
+except ImportError:
+    NGROK_SUPPORT = False
+    print("[INFO] pyngrok not installed. Public URL disabled.")
 
 # Flask 앱 설정
 app = Flask(__name__)
@@ -63,8 +73,12 @@ class WebServer:
         self.port = port
         self.server_thread = None
         self.is_running = False
-        self.server_url = None
+        self.local_url = None
+        self.public_url = None  # ngrok URL
+        self.server_url = None  # 실제 사용할 URL
         self.qr_code_base64 = None
+        self.ngrok_tunnel = None
+        self.use_ngrok = False
 
     def set_languages(self, languages_dict, source_lang, target_langs):
         """사용 가능한 언어 설정"""
@@ -94,25 +108,84 @@ class WebServer:
                 'source_lang': source_language_info
             })
 
-    def start(self):
-        """서버 시작"""
+    def start(self, use_ngrok=True):
+        """서버 시작
+
+        Args:
+            use_ngrok: True면 ngrok 터널 생성 (외부 접속 가능)
+        """
         if self.is_running:
             return
 
-        local_ip = get_local_ip()
-        self.server_url = f"http://{local_ip}:{self.port}"
-        self.qr_code_base64 = generate_qr_code(self.server_url)
+        self.use_ngrok = use_ngrok
 
+        # 로컬 URL 설정
+        local_ip = get_local_ip()
+        self.local_url = f"http://{local_ip}:{self.port}"
+
+        # Flask 서버 시작
         def run_server():
             socketio.run(app, host='0.0.0.0', port=self.port, debug=False, use_reloader=False)
 
         self.server_thread = threading.Thread(target=run_server, daemon=True)
         self.server_thread.start()
         self.is_running = True
-        print(f"[WebServer] Started at {self.server_url}")
+        print(f"[WebServer] Local server started at {self.local_url}")
+
+        # ngrok 터널 시작
+        if use_ngrok and NGROK_SUPPORT:
+            self._start_ngrok()
+
+        # 사용할 URL 결정 (ngrok 우선)
+        if self.public_url:
+            self.server_url = self.public_url
+        else:
+            self.server_url = self.local_url
+
+        # QR 코드 생성
+        self.qr_code_base64 = generate_qr_code(self.server_url)
+        print(f"[WebServer] QR URL: {self.server_url}")
+
+    def _start_ngrok(self):
+        """ngrok 터널 시작"""
+        try:
+            # 기존 터널 정리
+            try:
+                tunnels = ngrok.get_tunnels()
+                for tunnel in tunnels:
+                    ngrok.disconnect(tunnel.public_url)
+            except:
+                pass
+
+            # ngrok authtoken 설정 (환경변수에서)
+            auth_token = os.getenv("NGROK_AUTH_TOKEN")
+            if auth_token:
+                ngrok.set_auth_token(auth_token)
+                print("[ngrok] Auth token configured")
+
+            # 터널 생성
+            self.ngrok_tunnel = ngrok.connect(self.port, "http")
+            self.public_url = self.ngrok_tunnel.public_url
+
+            # HTTPS로 변환 (ngrok은 기본적으로 https 제공)
+            if self.public_url.startswith("http://"):
+                self.public_url = self.public_url.replace("http://", "https://")
+
+            print(f"[ngrok] Public URL: {self.public_url}")
+
+        except Exception as e:
+            print(f"[ngrok] Failed to start tunnel: {e}")
+            print("[ngrok] Falling back to local URL")
+            self.public_url = None
 
     def stop(self):
         """서버 중지"""
+        if self.ngrok_tunnel:
+            try:
+                ngrok.disconnect(self.ngrok_tunnel.public_url)
+                print("[ngrok] Tunnel disconnected")
+            except:
+                pass
         self.is_running = False
         print("[WebServer] Stopped")
 
@@ -121,12 +194,38 @@ class WebServer:
         return self.qr_code_base64
 
     def get_url(self):
-        """서버 URL 반환"""
+        """서버 URL 반환 (ngrok URL 우선)"""
         return self.server_url
+
+    def get_local_url(self):
+        """로컬 URL 반환"""
+        return self.local_url
+
+    def get_public_url(self):
+        """공개 URL (ngrok) 반환"""
+        return self.public_url
 
     def get_client_count(self):
         """연결된 클라이언트 수 반환"""
         return connected_clients
+
+    def is_public(self):
+        """외부 접속 가능 여부"""
+        return self.public_url is not None
+
+    def refresh_qr(self, use_public=True):
+        """QR 코드 새로고침
+
+        Args:
+            use_public: True면 ngrok URL, False면 로컬 URL 사용
+        """
+        if use_public and self.public_url:
+            self.server_url = self.public_url
+        else:
+            self.server_url = self.local_url
+
+        self.qr_code_base64 = generate_qr_code(self.server_url)
+        return self.server_url
 
 
 # 웹 서버 싱글톤 인스턴스

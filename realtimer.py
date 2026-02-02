@@ -2082,9 +2082,12 @@ class SubtitleOverlay(ResizableWindow):
 
         qr_window = tk.Toplevel(self.root)
         qr_window.title("QR Code - Audience Access")
-        qr_window.geometry("400x500")
+        qr_window.geometry("420x580")
         qr_window.configure(bg=COLORS['bg_card'])
         qr_window.attributes("-topmost", True)
+
+        # 상태 변수
+        is_public = [web_server.is_public()]  # 리스트로 감싸서 클로저에서 수정 가능하게
 
         # 제목
         title_label = tk.Label(
@@ -2094,7 +2097,17 @@ class SubtitleOverlay(ResizableWindow):
             fg=COLORS['text_primary'],
             bg=COLORS['bg_card']
         )
-        title_label.pack(pady=(30, 10))
+        title_label.pack(pady=(20, 5))
+
+        # 모드 표시 (Public/Local)
+        mode_label = tk.Label(
+            qr_window,
+            text="Public (ngrok)" if is_public[0] else "Local Network",
+            font=("Segoe UI", 10, "bold"),
+            fg=COLORS['success'] if is_public[0] else COLORS['secondary'],
+            bg=COLORS['bg_card']
+        )
+        mode_label.pack(pady=(0, 10))
 
         # 설명
         desc_label = tk.Label(
@@ -2105,56 +2118,72 @@ class SubtitleOverlay(ResizableWindow):
             bg=COLORS['bg_card'],
             justify="center"
         )
-        desc_label.pack(pady=(0, 20))
+        desc_label.pack(pady=(0, 15))
 
-        # QR 코드 이미지
-        qr_base64 = web_server.get_qr_code()
-        if qr_base64:
-            import base64
-            from io import BytesIO
-            try:
-                from PIL import Image, ImageTk
-                # Base64 디코딩
-                img_data = base64.b64decode(qr_base64.split(',')[1])
-                img = Image.open(BytesIO(img_data))
-                img = img.resize((250, 250), Image.LANCZOS)
-                photo = ImageTk.PhotoImage(img)
+        # QR 코드 프레임
+        qr_frame = tk.Frame(qr_window, bg=COLORS['bg_card'])
+        qr_frame.pack(pady=5)
 
-                qr_label = tk.Label(qr_window, image=photo, bg=COLORS['bg_card'])
-                qr_label.image = photo  # 참조 유지
-                qr_label.pack(pady=10)
-            except ImportError:
-                # PIL 없으면 URL만 표시
-                qr_label = tk.Label(
-                    qr_window,
-                    text="[QR Code]\n(Install Pillow for image)",
-                    font=("Segoe UI", 12),
-                    fg=COLORS['text_dim'],
-                    bg=COLORS['bg_card']
-                )
-                qr_label.pack(pady=30)
+        # QR 코드 이미지 레이블 (나중에 업데이트용)
+        qr_label = tk.Label(qr_frame, bg=COLORS['bg_card'])
+        qr_label.pack()
 
         # URL 표시
-        url = web_server.get_url()
         url_label = tk.Label(
             qr_window,
-            text=url,
-            font=("Segoe UI", 12),
+            text=web_server.get_url() or "Loading...",
+            font=("Segoe UI", 11),
             fg=COLORS['primary'],
             bg=COLORS['bg_card'],
-            cursor="hand2"
+            cursor="hand2",
+            wraplength=380
         )
-        url_label.pack(pady=15)
+        url_label.pack(pady=10)
+
+        def update_qr_display():
+            """QR 코드와 URL 업데이트"""
+            qr_base64 = web_server.get_qr_code()
+            url = web_server.get_url()
+
+            if qr_base64:
+                import base64
+                from io import BytesIO
+                try:
+                    from PIL import Image, ImageTk
+                    img_data = base64.b64decode(qr_base64.split(',')[1])
+                    img = Image.open(BytesIO(img_data))
+                    img = img.resize((220, 220), Image.LANCZOS)
+                    photo = ImageTk.PhotoImage(img)
+                    qr_label.config(image=photo)
+                    qr_label.image = photo
+                except ImportError:
+                    qr_label.config(text="[QR Code]\n(Install Pillow)", font=("Segoe UI", 12))
+
+            url_label.config(text=url)
+
+            # 모드 표시 업데이트
+            if is_public[0]:
+                mode_label.config(text="Public (ngrok)", fg=COLORS['success'])
+            else:
+                mode_label.config(text="Local Network", fg=COLORS['secondary'])
+
+        # 초기 QR 표시
+        update_qr_display()
+
+        # 버튼 프레임
+        btn_frame = tk.Frame(qr_window, bg=COLORS['bg_card'])
+        btn_frame.pack(pady=10)
 
         # URL 복사 버튼
         def copy_url():
+            url = web_server.get_url()
             qr_window.clipboard_clear()
             qr_window.clipboard_append(url)
             copy_btn.config(text="Copied!")
             qr_window.after(1500, lambda: copy_btn.config(text="Copy URL"))
 
         copy_btn = tk.Button(
-            qr_window,
+            btn_frame,
             text="Copy URL",
             font=("Segoe UI", 10),
             fg="white",
@@ -2162,16 +2191,43 @@ class SubtitleOverlay(ResizableWindow):
             activebackground=COLORS['primary_hover'],
             activeforeground="white",
             relief="flat",
-            padx=20,
-            pady=8,
+            padx=15,
+            pady=6,
             cursor="hand2",
             command=copy_url
         )
-        copy_btn.pack(pady=10)
+        copy_btn.pack(side="left", padx=5)
+
+        # URL 정보 프레임
+        info_frame = tk.Frame(qr_window, bg=COLORS['bg_card'])
+        info_frame.pack(pady=10, fill="x", padx=20)
+
+        # Public URL 표시 (있을 경우)
+        public_url = web_server.get_public_url()
+        local_url = web_server.get_local_url()
+
+        if public_url:
+            tk.Label(
+                info_frame,
+                text=f"Public: {public_url}",
+                font=("Segoe UI", 8),
+                fg=COLORS['success'],
+                bg=COLORS['bg_card'],
+                wraplength=360,
+                justify="left"
+            ).pack(anchor="w")
+
+        tk.Label(
+            info_frame,
+            text=f"Local: {local_url}",
+            font=("Segoe UI", 8),
+            fg=COLORS['text_dim'],
+            bg=COLORS['bg_card']
+        ).pack(anchor="w")
 
         # 접속자 수
         client_frame = tk.Frame(qr_window, bg=COLORS['bg_card'])
-        client_frame.pack(pady=20)
+        client_frame.pack(pady=15)
 
         client_icon = tk.Label(
             client_frame,
