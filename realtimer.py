@@ -243,6 +243,31 @@ LANGUAGES = {
 }
 source_language = 'ko'  # 소스 언어
 target_languages = ['en']  # 타겟 언어 리스트 (여러 개 선택 가능)
+selected_mic_id = None  # 선택된 마이크 장치 ID (None=시스템 기본)
+
+# sounddevice 지원
+try:
+    import sounddevice as sd
+    SD_AVAILABLE = True
+except ImportError:
+    SD_AVAILABLE = False
+    print("[INFO] sounddevice not installed. Mic selection disabled.")
+
+
+def get_microphone_list():
+    """시스템 마이크/입력 장치 목록 반환 [{'name': ..., 'id': index or None}, ...]"""
+    devices = [{'name': 'System Default', 'id': None}]
+    if not SD_AVAILABLE:
+        return devices
+    try:
+        # Windows MME (hostapi 0) 입력 장치만 필터
+        all_devs = sd.query_devices()
+        for i, d in enumerate(all_devs):
+            if d['max_input_channels'] > 0 and d['hostapi'] == 0:
+                devices.append({'name': d['name'], 'id': i})
+    except Exception as e:
+        print(f"[MIC] Device enumeration failed: {e}")
+    return devices
 
 # ========================
 # 색상 테마
@@ -973,6 +998,82 @@ class SettingsWindow(ResizableWindow):
         self.btn_dark_mode.pack(side="right")
         self.btn_dark_mode.bind("<Button-1>", lambda e: self.toggle_dark_mode())
 
+        # 두 번째 줄: 마이크 선택
+        mic_row = tk.Frame(lang_section, bg=COLORS['bg_main'])
+        mic_row.pack(fill="x", pady=(0, 10))
+
+        self.mic_list = get_microphone_list()
+
+        # 현재 선택된 마이크 이름
+        current_mic_name = 'System Default'
+        for m in self.mic_list:
+            if m['id'] == selected_mic_id:
+                current_mic_name = m['name']
+                break
+
+        # 마이크 드롭다운 (소스 언어 드롭다운과 동일한 스타일)
+        self.mic_dropdown_frame = tk.Frame(mic_row, bg=COLORS['bg_input'], cursor="hand2")
+        self.mic_dropdown_frame.pack(side="left", fill="x", expand=True)
+
+        self.mic_dropdown_icon = tk.Label(
+            self.mic_dropdown_frame,
+            text="🎤",
+            font=("Segoe UI", 10),
+            bg=COLORS['bg_input'],
+            fg=COLORS['text_dim'],
+            padx=(10)
+        )
+        self.mic_dropdown_icon.pack(side="left")
+
+        self.mic_dropdown_text = tk.Label(
+            self.mic_dropdown_frame,
+            text=current_mic_name,
+            font=("Segoe UI", 10),
+            bg=COLORS['bg_input'],
+            fg=COLORS['text_primary'],
+            anchor="w",
+            padx=5,
+            pady=8
+        )
+        self.mic_dropdown_text.pack(side="left", fill="x", expand=True)
+
+        self.mic_dropdown_arrow = tk.Label(
+            self.mic_dropdown_frame,
+            text="▼",
+            font=("Segoe UI", 8),
+            bg=COLORS['bg_input'],
+            fg=COLORS['text_dim'],
+            padx=10
+        )
+        self.mic_dropdown_arrow.pack(side="left")
+
+        def _mic_hover(entering):
+            bg = COLORS['border'] if entering else COLORS['bg_input']
+            self.mic_dropdown_frame.config(bg=bg)
+            self.mic_dropdown_icon.config(bg=bg)
+            self.mic_dropdown_text.config(bg=bg)
+            self.mic_dropdown_arrow.config(bg=bg)
+
+        for w in [self.mic_dropdown_frame, self.mic_dropdown_icon, self.mic_dropdown_text, self.mic_dropdown_arrow]:
+            w.bind("<Button-1>", lambda e: self.show_mic_dropdown())
+            w.bind("<Enter>", lambda e: _mic_hover(True))
+            w.bind("<Leave>", lambda e: _mic_hover(False))
+
+        # 새로고침 버튼
+        self.mic_refresh_btn = tk.Label(
+            mic_row,
+            text="↻",
+            font=("Segoe UI", 12),
+            fg=COLORS['text_dim'],
+            bg=COLORS['bg_main'],
+            cursor="hand2",
+            padx=8
+        )
+        self.mic_refresh_btn.pack(side="left")
+        self.mic_refresh_btn.bind("<Button-1>", lambda e: self._refresh_mic_list())
+        self.mic_refresh_btn.bind("<Enter>", lambda e: self.mic_refresh_btn.config(fg=COLORS['primary']))
+        self.mic_refresh_btn.bind("<Leave>", lambda e: self.mic_refresh_btn.config(fg=COLORS['text_dim']))
+
         # 드롭다운 팝업 참조
         self.dropdown_popup = None
 
@@ -1436,6 +1537,98 @@ class SettingsWindow(ResizableWindow):
         self.glossary_entries.append((text, tag_frame))
         self.glossary_canvas.update_idletasks()
         self.glossary_canvas.configure(scrollregion=self.glossary_canvas.bbox("all"))
+
+    def show_mic_dropdown(self):
+        """마이크 선택 드롭다운 표시"""
+        if self.dropdown_popup and self.dropdown_popup.winfo_exists():
+            self.dropdown_popup.destroy()
+            self.dropdown_popup = None
+            return
+
+        self.dropdown_popup = tk.Toplevel(self.root)
+        self.dropdown_popup.overrideredirect(True)
+        self.dropdown_popup.configure(bg=COLORS['border'])
+        self.dropdown_popup.attributes("-topmost", True)
+
+        x = self.mic_dropdown_frame.winfo_rootx()
+        y = self.mic_dropdown_frame.winfo_rooty() + self.mic_dropdown_frame.winfo_height() + 3
+        width = max(300, self.mic_dropdown_frame.winfo_width())
+
+        inner = tk.Frame(self.dropdown_popup, bg=COLORS['bg_card'])
+        inner.pack(fill="both", expand=True, padx=1, pady=1)
+
+        canvas = tk.Canvas(inner, bg=COLORS['bg_card'], highlightthickness=0, width=width - 2)
+        scroll_frame = tk.Frame(canvas, bg=COLORS['bg_card'])
+        canvas.pack(side="left", fill="both", expand=True)
+        canvas.create_window((0, 0), window=scroll_frame, anchor="nw", width=width - 2)
+
+        for mic in self.mic_list:
+            is_selected = mic['id'] == selected_mic_id
+            item = tk.Frame(scroll_frame, bg=COLORS['bg_card'], cursor="hand2")
+            item.pack(fill="x")
+
+            check = tk.Label(
+                item,
+                text="✓" if is_selected else "",
+                font=("Segoe UI", 10, "bold"),
+                fg=COLORS['primary'],
+                bg=COLORS['bg_card'],
+                width=3,
+                pady=8
+            )
+            check.pack(side="left")
+
+            label = tk.Label(
+                item,
+                text=mic['name'],
+                font=("Segoe UI", 10),
+                fg=COLORS['text_primary'] if not is_selected else COLORS['primary'],
+                bg=COLORS['bg_card'],
+                anchor="w",
+                pady=8
+            )
+            label.pack(side="left", fill="x", expand=True)
+
+            mic_id = mic['id']
+            mic_name = mic['name']
+            for w in [item, check, label]:
+                w.bind("<Button-1>", lambda e, mid=mic_id, mn=mic_name: self._select_mic(mid, mn))
+                w.bind("<Enter>", lambda e, it=item: it.config(bg=COLORS['bg_input']) or [
+                    c.config(bg=COLORS['bg_input']) for c in it.winfo_children()])
+                w.bind("<Leave>", lambda e, it=item: it.config(bg=COLORS['bg_card']) or [
+                    c.config(bg=COLORS['bg_card']) for c in it.winfo_children()])
+
+        scroll_frame.update_idletasks()
+        total_h = min(scroll_frame.winfo_reqheight() + 2, 300)
+        canvas.configure(height=total_h)
+        canvas.configure(scrollregion=canvas.bbox("all"))
+
+        self.dropdown_popup.geometry(f"{width}x{total_h + 2}+{x}+{y}")
+        self.dropdown_popup.bind("<FocusOut>", lambda e: self._close_dropdown_delayed())
+        self.dropdown_popup.focus_set()
+
+    def _select_mic(self, mic_id, mic_name):
+        """마이크 선택"""
+        global selected_mic_id
+        selected_mic_id = mic_id
+        self.mic_dropdown_text.config(text=mic_name)
+        if self.dropdown_popup and self.dropdown_popup.winfo_exists():
+            self.dropdown_popup.destroy()
+            self.dropdown_popup = None
+
+    def _refresh_mic_list(self):
+        """마이크 목록 새로고침"""
+        global selected_mic_id
+        self.mic_list = get_microphone_list()
+        # 현재 선택이 여전히 유효한지 확인
+        found = False
+        for m in self.mic_list:
+            if m['id'] == selected_mic_id:
+                found = True
+                break
+        if not found:
+            selected_mic_id = None
+            self.mic_dropdown_text.config(text='System Default')
 
     def toggle_dark_mode(self):
         """다크모드 토글"""
@@ -2370,18 +2563,72 @@ class SubtitleOverlay(ResizableWindow):
         y = self.root.winfo_y() + event.y - self.drag_y
         self.root.geometry(f"+{x}+{y}")
 
+    def _stop_mic_stream(self):
+        """sounddevice 마이크 스트림 정리"""
+        if hasattr(self, 'sd_stream') and self.sd_stream is not None:
+            try:
+                self.sd_stream.stop()
+                self.sd_stream.close()
+            except Exception:
+                pass
+            self.sd_stream = None
+        if hasattr(self, 'push_stream') and self.push_stream is not None:
+            try:
+                self.push_stream.close()
+            except Exception:
+                pass
+            self.push_stream = None
+
     def setup_recognition(self):
         """음성 인식 설정"""
         try:
+            # 기존 마이크 스트림 정리
+            self._stop_mic_stream()
+
             speech_config = speechsdk.SpeechConfig(subscription=SPEECH_KEY, region=SPEECH_REGION)
 
             # 소스 언어 설정
             lang_info = LANGUAGES.get(source_language, {})
             speech_config.speech_recognition_language = lang_info.get('code', 'ko-KR')
 
+            # 마이크 선택
+            audio_config = None
+            if selected_mic_id is not None and SD_AVAILABLE:
+                # 선택된 마이크로 PushAudioInputStream 생성
+                audio_format = speechsdk.audio.AudioStreamFormat(
+                    samples_per_second=16000, bits_per_sample=16, channels=1
+                )
+                self.push_stream = speechsdk.audio.PushAudioInputStream(audio_format)
+                audio_config = speechsdk.audio.AudioConfig(stream=self.push_stream)
+
+                push_ref = self.push_stream
+
+                def audio_callback(indata, frames, time_info, status):
+                    if push_ref:
+                        push_ref.write(indata.tobytes())
+
+                self.sd_stream = sd.InputStream(
+                    device=selected_mic_id,
+                    samplerate=16000, channels=1, dtype='int16',
+                    blocksize=3200,
+                    callback=audio_callback
+                )
+                self.sd_stream.start()
+
+                mic_name = "?"
+                for m in get_microphone_list():
+                    if m['id'] == selected_mic_id:
+                        mic_name = m['name']
+                        break
+                print(f"[MIC] Using: {mic_name} (id={selected_mic_id})")
+            else:
+                self.push_stream = None
+                self.sd_stream = None
+                print("[MIC] Using: System Default")
+
             self.speech_recognizer = speechsdk.SpeechRecognizer(
                 speech_config=speech_config,
-                audio_config=None
+                audio_config=audio_config
             )
             self.speech_recognizer.recognized.connect(self.on_recognized)
             self.speech_recognizer.recognizing.connect(self.on_recognizing)
@@ -2552,6 +2799,7 @@ Text: {source_text}"""
         if is_listening and self.speech_recognizer:
             is_listening = False
             self.speech_recognizer.stop_continuous_recognition_async()
+            self._stop_mic_stream()
             self.status_label.config(text="Stopped", fg=COLORS['text_dim'])
             print("음성 인식 중지")
 
