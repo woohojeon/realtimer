@@ -100,8 +100,17 @@ class ResizableWindow:
         }
         return cursors.get(edge, "")
 
+    def _is_root_alive(self):
+        """root 윈도우가 아직 유효한지 확인"""
+        try:
+            return self.root.winfo_exists()
+        except:
+            return False
+
     def _on_mouse_move(self, event):
         """마우스 이동 시 커서 변경"""
+        if not self._is_root_alive():
+            return
         if hasattr(self, '_is_dragging') and self._is_dragging:
             return
 
@@ -114,6 +123,8 @@ class ResizableWindow:
 
     def _on_mouse_down(self, event):
         """마우스 클릭 시 리사이즈 시작"""
+        if not self._is_root_alive():
+            return
         edge = self._get_edge(event.x, event.y)
         if edge:
             self.resize_edge = edge
@@ -127,6 +138,8 @@ class ResizableWindow:
 
     def _on_mouse_drag(self, event):
         """마우스 드래그 시 리사이즈"""
+        if not self._is_root_alive():
+            return
         if not self.resize_edge:
             return
 
@@ -156,10 +169,15 @@ class ResizableWindow:
 
         # 자막 창의 경우 wraplength 업데이트
         if hasattr(self, 'subtitle_label'):
-            self.subtitle_label.config(wraplength=new_w - 60)
+            try:
+                self.subtitle_label.config(wraplength=new_w - 60)
+            except:
+                pass
 
     def _on_mouse_up(self, event):
         """마우스 버튼 해제 시 리사이즈 종료"""
+        if not self._is_root_alive():
+            return
         self.resize_edge = None
         self._is_dragging = False
 
@@ -1875,9 +1893,9 @@ class SubtitleOverlay(ResizableWindow):
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
         self.overlay_width = screen_w - 200
-        # 타겟 언어 수에 따라 높이 조정 (언어당 40px 추가)
-        base_height = 80
-        lang_height = max(1, len(target_languages)) * 45
+        # 타겟 언어 수에 따라 높이 조정 (누적 자막 표시를 위해 높이 확대)
+        base_height = 120
+        lang_height = max(1, len(target_languages)) * 80
         self.overlay_height = base_height + lang_height
         x_pos = 100
         y_pos = screen_h - self.overlay_height - 60
@@ -1935,6 +1953,47 @@ class SubtitleOverlay(ResizableWindow):
             )
             self.client_count_label.pack(side="left", padx=(0, 5))
 
+        # 폰트 크기 조절
+        self.subtitle_font_size = 14
+
+        font_down_btn = tk.Label(
+            btn_container,
+            text="A-",
+            font=("Segoe UI", 9),
+            fg=COLORS['text_dim'],
+            bg=COLORS['bg_card'],
+            cursor="hand2",
+            padx=4
+        )
+        font_down_btn.pack(side="left", padx=1)
+        font_down_btn.bind("<Button-1>", lambda e: self._change_font_size(-2))
+        font_down_btn.bind("<Enter>", lambda e: font_down_btn.config(fg=COLORS['primary']))
+        font_down_btn.bind("<Leave>", lambda e: font_down_btn.config(fg=COLORS['text_dim']))
+
+        self.font_size_label = tk.Label(
+            btn_container,
+            text="14",
+            font=("Segoe UI", 8),
+            fg=COLORS['text_secondary'],
+            bg=COLORS['bg_card'],
+            padx=2
+        )
+        self.font_size_label.pack(side="left")
+
+        font_up_btn = tk.Label(
+            btn_container,
+            text="A+",
+            font=("Segoe UI", 9),
+            fg=COLORS['text_dim'],
+            bg=COLORS['bg_card'],
+            cursor="hand2",
+            padx=4
+        )
+        font_up_btn.pack(side="left", padx=(1, 8))
+        font_up_btn.bind("<Button-1>", lambda e: self._change_font_size(2))
+        font_up_btn.bind("<Enter>", lambda e: font_up_btn.config(fg=COLORS['primary']))
+        font_up_btn.bind("<Leave>", lambda e: font_up_btn.config(fg=COLORS['text_dim']))
+
         # 다크모드 토글 버튼
         self.dark_btn = tk.Label(
             btn_container,
@@ -1950,12 +2009,12 @@ class SubtitleOverlay(ResizableWindow):
         self.dark_btn.bind("<Enter>", lambda e: self.dark_btn.config(fg=COLORS['primary']))
         self.dark_btn.bind("<Leave>", lambda e: self.dark_btn.config(fg=COLORS['text_dim']))
 
-        # 설정 버튼
+        # 세션 종료 & 저장 버튼
         self.settings_btn = tk.Label(
             btn_container,
-            text="Settings",
-            font=("Segoe UI", 9),
-            fg=COLORS['text_dim'],
+            text="End & Save",
+            font=("Segoe UI", 9, "bold"),
+            fg=COLORS['accent_mint'],
             bg=COLORS['bg_card'],
             cursor="hand2",
             padx=8
@@ -1963,7 +2022,7 @@ class SubtitleOverlay(ResizableWindow):
         self.settings_btn.pack(side="left", padx=3)
         self.settings_btn.bind("<Button-1>", lambda e: self.back_to_settings())
         self.settings_btn.bind("<Enter>", lambda e: self.settings_btn.config(fg=COLORS['primary']))
-        self.settings_btn.bind("<Leave>", lambda e: self.settings_btn.config(fg=COLORS['text_dim']))
+        self.settings_btn.bind("<Leave>", lambda e: self.settings_btn.config(fg=COLORS['accent_mint']))
 
         # 종료 버튼
         self.close_btn = tk.Label(
@@ -1980,17 +2039,23 @@ class SubtitleOverlay(ResizableWindow):
         self.close_btn.bind("<Enter>", lambda e: self.close_btn.config(fg=COLORS['danger']))
         self.close_btn.bind("<Leave>", lambda e: self.close_btn.config(fg=COLORS['text_dim']))
 
-        # 자막 컨테이너 (여러 언어 표시)
+        # 전체 기록 저장 (다운로드용)
+        self.full_history = []  # [(source_text, {lang: translation, ...}), ...]
+
+        # 자막 컨테이너 (여러 언어 표시, 스크롤 가능)
         subtitle_container = tk.Frame(main_frame, bg=COLORS['bg_card'])
         subtitle_container.pack(expand=True, fill="both", padx=20, pady=(0, 10))
 
-        # 각 타겟 언어별 자막 레이블 생성
-        self.subtitle_labels = {}
+        # 각 타겟 언어별 스크롤 가능한 자막 영역 생성
+        self.subtitle_texts = {}    # lang_code -> Text widget (누적 표시용)
+        self.subtitle_labels = {}   # lang_code -> Label (호환성 래퍼)
+        self._realtime_tags = {}    # lang_code -> 실시간 번역 태그 추적
+
         for lang_code in target_languages:
             lang_info = LANGUAGES.get(lang_code, {'name': lang_code, 'flag': ''})
 
             row_frame = tk.Frame(subtitle_container, bg=COLORS['bg_card'])
-            row_frame.pack(fill="x", pady=2)
+            row_frame.pack(fill="both", expand=True, pady=2)
 
             # 언어 플래그
             flag_label = tk.Label(
@@ -2001,23 +2066,47 @@ class SubtitleOverlay(ResizableWindow):
                 bg=COLORS['bg_card'],
                 width=3
             )
-            flag_label.pack(side="left")
+            flag_label.pack(side="left", anchor="n", pady=3)
 
-            # 자막 텍스트
-            subtitle_label = tk.Label(
+            # 자막 Text 위젯 (누적 표시)
+            subtitle_text = tk.Text(
                 row_frame,
-                text="Waiting...",
                 font=("Segoe UI", 14),
                 fg=COLORS['text_primary'],
                 bg=COLORS['bg_card'],
-                anchor="w",
-                wraplength=self.overlay_width - 100
+                wrap="word",
+                borderwidth=0,
+                highlightthickness=0,
+                state="disabled",
+                cursor="arrow",
+                height=3
             )
-            subtitle_label.pack(side="left", fill="x", expand=True)
+            subtitle_text.pack(side="left", fill="both", expand=True)
 
-            self.subtitle_labels[lang_code] = subtitle_label
+            # 태그 설정
+            subtitle_text.tag_configure("final", foreground=COLORS['text_primary'])
+            subtitle_text.tag_configure("realtime", foreground=COLORS['secondary'])
+            subtitle_text.tag_configure("dim", foreground=COLORS['text_dim'])
 
-        # 단일 언어 호환용 (기존 코드와 호환)
+            self.subtitle_texts[lang_code] = subtitle_text
+            self._realtime_tags[lang_code] = False
+
+        # 호환성 래퍼: subtitle_labels를 유지하되 내부적으로 Text 위젯 사용
+        class _TextLabelAdapter:
+            """기존 label.config(text=..., fg=...) 호출을 Text 위젯으로 변환"""
+            def __init__(self, text_widget, overlay):
+                self._text = text_widget
+                self._overlay = overlay
+            def config(self, text=None, fg=None, **kwargs):
+                # 외부에서 호출되지 않도록 — check_queue에서 직접 처리
+                pass
+
+        for lang_code in target_languages:
+            self.subtitle_labels[lang_code] = _TextLabelAdapter(
+                self.subtitle_texts[lang_code], self
+            )
+
+        # 단일 언어 호환용
         if target_languages:
             self.subtitle_label = self.subtitle_labels[target_languages[0]]
         else:
@@ -2140,7 +2229,10 @@ class SubtitleOverlay(ResizableWindow):
         )
         url_label.pack(pady=10)
 
-        def update_qr_display():
+        # QR 원본 이미지 캐시
+        qr_pil_image = [None]  # 클로저용 리스트
+
+        def update_qr_display(qr_size=220):
             """QR 코드와 URL 업데이트"""
             qr_base64 = web_server.get_qr_code()
             url = web_server.get_url()
@@ -2150,9 +2242,10 @@ class SubtitleOverlay(ResizableWindow):
                 from io import BytesIO
                 try:
                     from PIL import Image, ImageTk
-                    img_data = base64.b64decode(qr_base64.split(',')[1])
-                    img = Image.open(BytesIO(img_data))
-                    img = img.resize((220, 220), Image.LANCZOS)
+                    if qr_pil_image[0] is None:
+                        img_data = base64.b64decode(qr_base64.split(',')[1])
+                        qr_pil_image[0] = Image.open(BytesIO(img_data))
+                    img = qr_pil_image[0].resize((qr_size, qr_size), Image.LANCZOS)
                     photo = ImageTk.PhotoImage(img)
                     qr_label.config(image=photo)
                     qr_label.image = photo
@@ -2166,6 +2259,19 @@ class SubtitleOverlay(ResizableWindow):
                 mode_label.config(text="Public (ngrok)", fg=COLORS['success'])
             else:
                 mode_label.config(text="Local Network", fg=COLORS['secondary'])
+
+        def on_qr_window_resize(event):
+            """창 리사이즈 시 QR 이미지 크기 조정"""
+            if event.widget != qr_window:
+                return
+            w = event.width
+            h = event.height
+            # 창 너비/높이 중 작은 쪽 기준, 여백 제외
+            qr_size = min(w, h) - 160
+            qr_size = max(100, min(qr_size, 600))
+            update_qr_display(qr_size)
+
+        qr_window.bind("<Configure>", on_qr_window_resize)
 
         # 초기 QR 표시
         update_qr_display()
@@ -2279,11 +2385,16 @@ class SubtitleOverlay(ResizableWindow):
             )
             self.speech_recognizer.recognized.connect(self.on_recognized)
             self.speech_recognizer.recognizing.connect(self.on_recognizing)
+            self.speech_recognizer.canceled.connect(self.on_canceled)
+            self.speech_recognizer.session_stopped.connect(self.on_session_stopped)
             print(f"음성 인식 초기화 성공 (소스: {source_language}, 타겟: {target_languages})")
         except Exception as e:
             print(f"음성 인식 초기화 오류: {e}")
-            for label in self.subtitle_labels.values():
-                label.config(text=f"ERROR: {str(e)[:50]}", fg=COLORS['danger'])
+            for lang_code, tw in self.subtitle_texts.items():
+                tw.config(state="normal")
+                tw.delete("1.0", "end")
+                tw.insert("end", f"ERROR: {str(e)[:50]}")
+                tw.config(state="disabled", fg=COLORS['danger'])
 
     def on_recognizing(self, evt):
         """실시간 인식 중"""
@@ -2298,6 +2409,47 @@ class SubtitleOverlay(ResizableWindow):
         """인식 완료"""
         if evt.result.text and is_listening:
             subtitle_queue.put(("recognized", evt.result.text))
+
+    def on_canceled(self, evt):
+        """음성 인식 취소/타임아웃 시 자동 재연결"""
+        reason = evt.cancellation_details.reason
+        print(f"[Speech] Canceled: {reason}, ErrorDetails: {evt.cancellation_details.error_details}")
+        if is_listening:
+            print("[Speech] Auto-reconnecting...")
+            self._reconnect_recognition()
+
+    def on_session_stopped(self, evt):
+        """세션 중지 시 자동 재연결"""
+        print(f"[Speech] Session stopped: {evt}")
+        if is_listening:
+            print("[Speech] Auto-reconnecting after session stop...")
+            self._reconnect_recognition()
+
+    def _reconnect_recognition(self):
+        """음성 인식 재연결"""
+        def do_reconnect():
+            try:
+                if self.speech_recognizer:
+                    try:
+                        self.speech_recognizer.stop_continuous_recognition_async()
+                    except:
+                        pass
+                self.setup_recognition()
+                if self.speech_recognizer and is_listening:
+                    self.speech_recognizer.start_continuous_recognition_async()
+                    source_info = LANGUAGES.get(source_language, {})
+                    self.status_label.config(
+                        text=f"{source_info.get('flag', '')} Listening",
+                        fg=COLORS['success']
+                    )
+                    print("[Speech] Reconnected successfully")
+            except Exception as e:
+                print(f"[Speech] Reconnect failed: {e}")
+                # 3초 후 재시도
+                self.root.after(3000, do_reconnect)
+
+        # UI 스레드에서 실행 (약간의 딜레이)
+        self.root.after(1000, do_reconnect)
 
     def realtime_translate(self, source_text):
         """실시간 번역 (여러 언어 동시)"""
@@ -2379,6 +2531,7 @@ Text: {source_text}"""
                     translations[lang_code] = translation
 
             history.append((source_text, translations))
+            self.full_history.append((source_text, translations))
             subtitle_queue.put(("final", translations))
         except Exception as e:
             print(f"번역 오류: {e}")
@@ -2420,9 +2573,12 @@ Text: {source_text}"""
         # 다크모드 버튼 텍스트 업데이트
         self.dark_btn.config(text="White" if is_dark_mode else "Dark")
 
-        # 모든 자막 레이블 업데이트
-        for label in self.subtitle_labels.values():
-            label.config(bg=COLORS['bg_card'], fg=COLORS['text_primary'])
+        # 모든 자막 Text 위젯 테마 업데이트
+        for lang_code, tw in self.subtitle_texts.items():
+            tw.config(bg=COLORS['bg_card'], fg=COLORS['text_primary'])
+            tw.tag_configure("final", foreground=COLORS['text_primary'])
+            tw.tag_configure("realtime", foreground=COLORS['secondary'])
+            tw.tag_configure("dim", foreground=COLORS['text_dim'])
 
     def _apply_theme_to_widget(self, widget):
         """위젯에 테마 적용 (재귀)"""
@@ -2466,7 +2622,7 @@ Text: {source_text}"""
             self._apply_theme_to_widget(child)
 
     def back_to_settings(self):
-        """설정 화면으로 돌아가기"""
+        """세션 종료 - 기록이 있으면 다운로드 모달 표시"""
         global is_listening
         is_listening = False
         if self.speech_recognizer:
@@ -2474,9 +2630,327 @@ Text: {source_text}"""
                 self.speech_recognizer.stop_continuous_recognition_async()
             except:
                 pass
-        self.go_back = True
-        self.root.quit()
-        self.root.destroy()
+        self.status_label.config(text="Stopped", fg=COLORS['text_dim'])
+
+        if self.full_history:
+            self._show_download_modal()
+        else:
+            self.go_back = True
+            self.root.quit()
+            self.root.destroy()
+
+    def _back_translate_korean(self, english_texts, source_texts):
+        """영어 번역문들을 한국어로 역번역 (LLM 경유로 정확도 향상)"""
+        try:
+            combined = "\n".join([f"{i+1}. {t}" for i, t in enumerate(english_texts)])
+            prompt = f"""You are a professional English-to-Korean translator.
+Translate each numbered English sentence below into natural Korean.
+Keep the numbering. Output ONLY the Korean translations, one per line.
+
+{combined}"""
+
+            resp = client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                max_tokens=2000
+            )
+            result = resp.choices[0].message.content.strip()
+            print(f"[역번역] 응답: {result[:200]}...")
+
+            # 번호별로 파싱
+            ko_texts = []
+            for line in result.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                # "1. 번역문" 형태에서 번호 제거
+                import re
+                m = re.match(r'^\d+[\.\)]\s*', line)
+                if m:
+                    ko_texts.append(line[m.end():].strip())
+                else:
+                    ko_texts.append(line)
+
+            # 개수가 맞지 않으면 원본(STT) 사용
+            if len(ko_texts) != len(english_texts):
+                print(f"[역번역] 개수 불일치: 요청 {len(english_texts)}, 응답 {len(ko_texts)}")
+                return source_texts
+            return ko_texts
+        except Exception as e:
+            print(f"[역번역] 오류: {e}")
+            return source_texts
+
+    def _build_full_transcript(self):
+        """전체 기록을 텍스트로 변환 (한국어는 영어→한국어 역번역으로 정확도 향상)"""
+        # 영어 번역문 & 원문 수집
+        en_texts = []
+        source_texts = []
+        for source, translations in self.full_history:
+            source_texts.append(source)
+            en_text = translations.get('en', '')
+            if not en_text:
+                for lc in target_languages:
+                    if lc in translations and translations[lc]:
+                        en_text = translations[lc]
+                        break
+            en_texts.append(en_text if en_text else source)
+
+        # 영어→한국어 역번역 (배치)
+        ko_texts = self._back_translate_korean(en_texts, source_texts)
+
+        lines = []
+        lines.append("=" * 50)
+        lines.append("  Lecture Lens - Full Transcript")
+        lines.append("=" * 50)
+        lines.append("")
+        for i, (source, translations) in enumerate(self.full_history):
+            lines.append(f"[{i+1}] (한국어) {ko_texts[i]}")
+            for lang_code in target_languages:
+                lang_name = LANGUAGES.get(lang_code, {}).get('name', lang_code)
+                trans = translations.get(lang_code, '')
+                if trans:
+                    lines.append(f"    ({lang_name}) {trans}")
+            lines.append("")
+        lines.append(f"Total: {len(self.full_history)} segments")
+        return "\n".join(lines)
+
+    def _generate_summary(self):
+        """GPT로 요약본 생성"""
+        try:
+            # 원문 + 번역문 합치기
+            all_source = []
+            all_translations = {lc: [] for lc in target_languages}
+            for source, translations in self.full_history:
+                all_source.append(source)
+                for lc in target_languages:
+                    if lc in translations:
+                        all_translations[lc].append(translations[lc])
+
+            source_text = " ".join(all_source)
+            trans_texts = {}
+            for lc in target_languages:
+                trans_texts[lc] = " ".join(all_translations[lc])
+
+            # 요약 요청
+            lang_names = [LANGUAGES[lc]['name'] for lc in target_languages if lc in LANGUAGES]
+            prompt = f"""Summarize the following lecture/presentation content concisely.
+Provide a summary in the original language ({LANGUAGES.get(source_language, {}).get('name', source_language)}) and also in: {', '.join(lang_names)}.
+
+Format:
+[{LANGUAGES.get(source_language, {}).get('name', source_language)} Summary]
+(summary here)
+
+"""
+            for lc in target_languages:
+                lang_name = LANGUAGES.get(lc, {}).get('name', lc)
+                prompt += f"[{lang_name} Summary]\n(summary here)\n\n"
+
+            prompt += f"""Original text:
+{source_text[:3000]}"""
+
+            resp = client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=800
+            )
+            summary = resp.choices[0].message.content.strip()
+
+            lines = []
+            lines.append("=" * 50)
+            lines.append("  Lecture Lens - Summary")
+            lines.append("=" * 50)
+            lines.append("")
+            lines.append(summary)
+            lines.append("")
+            lines.append(f"(Based on {len(self.full_history)} segments)")
+            return "\n".join(lines)
+        except Exception as e:
+            return f"Summary generation failed: {e}"
+
+    def _download_txt(self, content, default_name):
+        """텍스트를 .txt 파일로 저장"""
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".txt",
+            filetypes=[("Text Files", "*.txt")],
+            initialfile=default_name,
+            title="Save As"
+        )
+        if filepath:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(content)
+            return True
+        return False
+
+    def _show_download_modal(self):
+        """다운로드 모달 표시"""
+        self.modal = tk.Toplevel(self.root)
+        self.modal.overrideredirect(True)
+        self.modal.configure(bg=COLORS['bg_main'])
+        self.modal.transient(self.root)
+        self.modal.attributes("-topmost", True)
+
+        width, height = 420, 340
+        screen_w = self.modal.winfo_screenwidth()
+        screen_h = self.modal.winfo_screenheight()
+        x = (screen_w - width) // 2
+        y = (screen_h - height) // 2
+        self.modal.geometry(f"{width}x{height}+{x}+{y}")
+
+        # 드래그 변수
+        self._modal_drag_x = 0
+        self._modal_drag_y = 0
+
+        # 타이틀바
+        titlebar = tk.Frame(self.modal, bg=COLORS['bg_white'], height=45)
+        titlebar.pack(fill="x", side="top")
+        titlebar.pack_propagate(False)
+
+        def modal_start_drag(event):
+            self._modal_drag_x = event.x
+            self._modal_drag_y = event.y
+
+        def modal_on_drag(event):
+            dx = event.x - self._modal_drag_x
+            dy = event.y - self._modal_drag_y
+            nx = self.modal.winfo_x() + dx
+            ny = self.modal.winfo_y() + dy
+            self.modal.geometry(f"+{nx}+{ny}")
+
+        titlebar.bind("<Button-1>", modal_start_drag)
+        titlebar.bind("<B1-Motion>", modal_on_drag)
+
+        title_label = tk.Label(
+            titlebar, text="Session Ended",
+            font=("Segoe UI", 11, "bold"),
+            fg=COLORS['text_primary'], bg=COLORS['bg_white']
+        )
+        title_label.pack(side="left", padx=20)
+        title_label.bind("<Button-1>", modal_start_drag)
+        title_label.bind("<B1-Motion>", modal_on_drag)
+
+        # 컨테이너
+        container = tk.Frame(self.modal, bg=COLORS['bg_main'])
+        container.pack(fill="both", expand=True, padx=30, pady=20)
+
+        # 안내 메시지
+        tk.Label(
+            container,
+            text=f"{len(self.full_history)} segments recorded",
+            font=("Segoe UI", 14, "bold"),
+            fg=COLORS['text_primary'], bg=COLORS['bg_main']
+        ).pack(anchor="w", pady=(0, 5))
+
+        tk.Label(
+            container,
+            text="Download your session transcript before leaving.",
+            font=("Segoe UI", 10),
+            fg=COLORS['text_secondary'], bg=COLORS['bg_main']
+        ).pack(anchor="w", pady=(0, 20))
+
+        # 전문 다운로드 버튼
+        transcript_btn = tk.Frame(container, bg=COLORS['primary'], cursor="hand2")
+        transcript_btn.pack(fill="x", pady=(0, 10), ipady=12)
+
+        transcript_label = tk.Label(
+            transcript_btn,
+            text="Download Full Transcript (.txt)",
+            font=("Segoe UI", 11, "bold"),
+            fg="#FFFFFF", bg=COLORS['primary']
+        )
+        transcript_label.pack()
+
+        self._transcript_generating = False
+
+        def on_download_transcript(e=None):
+            if self._transcript_generating:
+                return
+            self._transcript_generating = True
+            transcript_label.config(text="Generating transcript...")
+
+            def generate():
+                content = self._build_full_transcript()
+                self.modal.after(0, lambda: _transcript_done(content))
+
+            def _transcript_done(content):
+                self._transcript_generating = False
+                transcript_label.config(text="Download Full Transcript (.txt)")
+                self._download_txt(content, "transcript.txt")
+
+            threading.Thread(target=generate, daemon=True).start()
+
+        for w in [transcript_btn, transcript_label]:
+            w.bind("<Button-1>", on_download_transcript)
+            w.bind("<Enter>", lambda e: transcript_btn.config(bg=COLORS['primary_hover']) or transcript_label.config(bg=COLORS['primary_hover']))
+            w.bind("<Leave>", lambda e: transcript_btn.config(bg=COLORS['primary']) or transcript_label.config(bg=COLORS['primary']))
+
+        # 요약본 다운로드 버튼
+        summary_btn = tk.Frame(container, bg=COLORS['secondary'], cursor="hand2")
+        summary_btn.pack(fill="x", pady=(0, 10), ipady=12)
+
+        summary_label = tk.Label(
+            summary_btn,
+            text="Download Summary (.txt)",
+            font=("Segoe UI", 11, "bold"),
+            fg="#FFFFFF", bg=COLORS['secondary']
+        )
+        summary_label.pack()
+
+        self._summary_generating = False
+
+        def on_download_summary(e=None):
+            if self._summary_generating:
+                return
+            self._summary_generating = True
+            summary_label.config(text="Generating summary...")
+
+            def generate():
+                content = self._generate_summary()
+                self.modal.after(0, lambda: _summary_done(content))
+
+            def _summary_done(content):
+                self._summary_generating = False
+                summary_label.config(text="Download Summary (.txt)")
+                self._download_txt(content, "summary.txt")
+
+            threading.Thread(target=generate, daemon=True).start()
+
+        for w in [summary_btn, summary_label]:
+            w.bind("<Button-1>", on_download_summary)
+            w.bind("<Enter>", lambda e: summary_btn.config(bg=COLORS['primary']) or summary_label.config(bg=COLORS['primary']))
+            w.bind("<Leave>", lambda e: summary_btn.config(bg=COLORS['secondary']) or summary_label.config(bg=COLORS['secondary']))
+
+        # 하단 버튼 프레임
+        bottom_frame = tk.Frame(container, bg=COLORS['bg_main'])
+        bottom_frame.pack(fill="x", pady=(15, 0))
+
+        # 저장 없이 나가기
+        skip_btn = tk.Label(
+            bottom_frame,
+            text="Skip & Go to Settings",
+            font=("Segoe UI", 10),
+            fg=COLORS['text_dim'], bg=COLORS['bg_main'],
+            cursor="hand2"
+        )
+        skip_btn.pack(side="left")
+
+        def on_skip(e=None):
+            self.modal.destroy()
+            self.go_back = True
+            self.root.quit()
+            self.root.destroy()
+
+        skip_btn.bind("<Button-1>", on_skip)
+        skip_btn.bind("<Enter>", lambda e: skip_btn.config(fg=COLORS['text_secondary']))
+        skip_btn.bind("<Leave>", lambda e: skip_btn.config(fg=COLORS['text_dim']))
+
+        self.modal.grab_set()
+        self.modal.focus_force()
+
+        # 둥근 모서리
+        self.modal.update_idletasks()
+        apply_rounded_corners(self.modal)
 
     def quit_app(self):
         """앱 종료"""
@@ -2491,8 +2965,72 @@ Text: {source_text}"""
         self.root.quit()
         self.root.destroy()
 
+    def _change_font_size(self, delta):
+        """자막 폰트 크기 변경"""
+        new_size = self.subtitle_font_size + delta
+        if new_size < 8 or new_size > 40:
+            return
+        self.subtitle_font_size = new_size
+        self.font_size_label.config(text=str(new_size))
+        for tw in self.subtitle_texts.values():
+            tw.config(font=("Segoe UI", new_size))
+
+    def _clear_realtime(self, lang_code):
+        """실시간 번역 임시 텍스트 제거"""
+        tw = self.subtitle_texts.get(lang_code)
+        if tw and self._realtime_tags.get(lang_code):
+            tw.config(state="normal")
+            try:
+                tw.delete("realtime_start", "end")
+            except tk.TclError:
+                pass
+            tw.config(state="disabled")
+            self._realtime_tags[lang_code] = False
+
+    def _append_realtime(self, lang_code, text):
+        """실시간 번역 임시 텍스트 표시 (기존 확정 텍스트 뒤에)"""
+        tw = self.subtitle_texts.get(lang_code)
+        if not tw:
+            return
+        self._clear_realtime(lang_code)
+        tw.config(state="normal")
+        tw.mark_set("realtime_start", "end-1c")
+        tw.mark_gravity("realtime_start", "left")
+        tw.insert("end", "\n" + text if tw.get("1.0", "end").strip() else text, "realtime")
+        tw.see("end")
+        tw.config(state="disabled")
+        self._realtime_tags[lang_code] = True
+
+    def _append_final(self, lang_code, text):
+        """확정 번역을 누적 추가 (문장 사이 빈 줄)"""
+        tw = self.subtitle_texts.get(lang_code)
+        if not tw:
+            return
+        self._clear_realtime(lang_code)
+        tw.config(state="normal")
+        if tw.get("1.0", "end").strip():
+            tw.insert("end", "\n\n" + text, "final")
+        else:
+            tw.insert("end", text, "final")
+        tw.see("end")
+        tw.config(state="disabled")
+
+    def _show_dim(self, lang_code, text):
+        """번역 중 등 임시 메시지 표시"""
+        tw = self.subtitle_texts.get(lang_code)
+        if not tw:
+            return
+        self._clear_realtime(lang_code)
+        tw.config(state="normal")
+        tw.mark_set("realtime_start", "end-1c")
+        tw.mark_gravity("realtime_start", "left")
+        tw.insert("end", "\n" + text if tw.get("1.0", "end").strip() else text, "dim")
+        tw.see("end")
+        tw.config(state="disabled")
+        self._realtime_tags[lang_code] = True
+
     def check_queue(self):
-        """큐 확인 및 자막 업데이트 (다국어 지원)"""
+        """큐 확인 및 자막 업데이트 (다국어 지원, 누적 표시)"""
         global last_realtime_translation
         try:
             while True:
@@ -2505,35 +3043,35 @@ Text: {source_text}"""
                 if msg_type == "realtime":
                     if data != last_realtime_translation:
                         last_realtime_translation = data
-                        # 각 언어별 레이블 업데이트
                         if isinstance(data, dict):
-                            for lang_code, label in self.subtitle_labels.items():
+                            for lang_code in self.subtitle_texts:
                                 translation = data.get(lang_code, "...")
-                                label.config(text=translation, fg=COLORS['secondary'])
+                                self._append_realtime(lang_code, translation)
                         else:
-                            # 단일 결과 (호환성)
-                            for label in self.subtitle_labels.values():
-                                label.config(text=str(data), fg=COLORS['secondary'])
+                            for lang_code in self.subtitle_texts:
+                                self._append_realtime(lang_code, str(data))
                         source_info = LANGUAGES.get(source_language, {})
                         self.status_label.config(text=f"{source_info.get('flag', '')} Processing", fg=COLORS['secondary'])
+
                 elif msg_type == "recognized":
                     last_realtime_translation = ''
-                    for label in self.subtitle_labels.values():
-                        label.config(text="Translating...", fg=COLORS['text_dim'])
+                    for lang_code in self.subtitle_texts:
+                        self._show_dim(lang_code, "Translating...")
                     source_info = LANGUAGES.get(source_language, {})
                     self.status_label.config(text=f"{source_info.get('flag', '')} Translating", fg=COLORS['primary'])
                     threading.Thread(
                         target=self.translate_final, args=(data,), daemon=True
                     ).start()
+
                 elif msg_type == "final":
-                    # 각 언어별 레이블 업데이트
                     if isinstance(data, dict):
-                        for lang_code, label in self.subtitle_labels.items():
+                        for lang_code in self.subtitle_texts:
                             translation = data.get(lang_code, "")
-                            label.config(text=translation, fg=COLORS['text_primary'])
+                            if translation:
+                                self._append_final(lang_code, translation)
                     else:
-                        for label in self.subtitle_labels.values():
-                            label.config(text=str(data), fg=COLORS['text_primary'])
+                        for lang_code in self.subtitle_texts:
+                            self._append_final(lang_code, str(data))
                     source_info = LANGUAGES.get(source_language, {})
                     self.status_label.config(text=f"{source_info.get('flag', '')} Listening", fg=COLORS['success'])
         except queue.Empty:

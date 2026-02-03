@@ -15,6 +15,11 @@ let ttsSpeed = 1.0;
 let isSpeaking = false;
 let speechSynthesis = window.speechSynthesis;
 let pendingTTS = null;
+let subtitleFontSize = 1.35; // rem
+
+const FONT_SIZE_MIN = 0.8;
+const FONT_SIZE_MAX = 3.0;
+const FONT_SIZE_STEP = 0.2;
 
 // TTS 언어 코드 매핑
 const TTS_LANG_MAP = {
@@ -30,27 +35,31 @@ const TTS_LANG_MAP = {
     'vi': 'vi-VN'
 };
 
+// 문장 종결 패턴 (다국어)
+const SENTENCE_END_RE = /(?<=[.!?。！？])\s*/;
+
 // ========================
 // DOM Elements
 // ========================
 const connectionStatus = document.getElementById('connectionStatus');
 const statusDot = connectionStatus.querySelector('.status-dot');
-const statusText = connectionStatus.querySelector('.status-text');
 const languageSelect = document.getElementById('languageSelect');
-const subtitleStatus = document.getElementById('subtitleStatus');
-const subtitleText = document.getElementById('subtitleText');
+const subtitleHistory = document.getElementById('subtitleHistory');
+const subtitleRealtime = document.getElementById('subtitleRealtime');
 const ttsToggle = document.getElementById('ttsToggle');
-const ttsControls = document.getElementById('ttsControls');
 const ttsSpeedInput = document.getElementById('ttsSpeed');
 const speedValue = document.getElementById('speedValue');
 const btnSpeak = document.getElementById('btnSpeak');
 const themeToggle = document.getElementById('themeToggle');
+const fontIncrease = document.getElementById('fontIncrease');
+const fontDecrease = document.getElementById('fontDecrease');
 
 // ========================
 // Initialization
 // ========================
 document.addEventListener('DOMContentLoaded', () => {
     initTheme();
+    initFontSize();
     initSocket();
     initEventListeners();
     checkTTSSupport();
@@ -72,39 +81,61 @@ function toggleTheme() {
 }
 
 // ========================
+// Font Size Management
+// ========================
+function initFontSize() {
+    const saved = localStorage.getItem('subtitleFontSize');
+    if (saved) {
+        subtitleFontSize = parseFloat(saved);
+    }
+    applyFontSize();
+}
+
+function applyFontSize() {
+    document.documentElement.style.setProperty('--subtitle-size', subtitleFontSize + 'rem');
+}
+
+function changeFontSize(delta) {
+    subtitleFontSize = Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, subtitleFontSize + delta));
+    applyFontSize();
+    localStorage.setItem('subtitleFontSize', subtitleFontSize);
+}
+
+// ========================
 // Socket Connection
 // ========================
 function initSocket() {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     socket = io({
-        transports: ['websocket', 'polling']
+        transports: ['polling', 'websocket'],
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 1000
     });
 
     socket.on('connect', () => {
-        updateConnectionStatus('connected', 'Connected');
+        updateConnectionStatus('connected');
         socket.emit('request_languages');
     });
 
     socket.on('disconnect', () => {
-        updateConnectionStatus('disconnected', 'Disconnected');
+        updateConnectionStatus('disconnected');
     });
 
     socket.on('connect_error', () => {
-        updateConnectionStatus('error', 'Connection Error');
+        updateConnectionStatus('error');
     });
 
     socket.on('languages_update', handleLanguagesUpdate);
     socket.on('subtitle_update', handleSubtitleUpdate);
 }
 
-function updateConnectionStatus(status, text) {
+function updateConnectionStatus(status) {
     statusDot.className = 'status-dot';
     if (status === 'connected') {
         statusDot.classList.add('connected');
     } else if (status === 'error') {
         statusDot.classList.add('error');
     }
-    statusText.textContent = text;
 }
 
 // ========================
@@ -144,45 +175,52 @@ function updateLanguageSelect() {
 function handleSubtitleUpdate(data) {
     const { type, data: subtitles } = data;
 
-    // 상태 업데이트
     if (type === 'processing') {
-        subtitleStatus.textContent = 'Translating...';
-        subtitleStatus.className = 'subtitle-status processing';
-        subtitleText.className = 'subtitle-text processing';
+        subtitleRealtime.textContent = '...';
         return;
-    }
-
-    if (type === 'realtime') {
-        subtitleStatus.textContent = 'Real-time translation';
-        subtitleStatus.className = 'subtitle-status processing';
-        subtitleText.className = 'subtitle-text realtime';
-    } else if (type === 'final') {
-        subtitleStatus.textContent = 'Translation complete';
-        subtitleStatus.className = 'subtitle-status final';
-        subtitleText.className = 'subtitle-text final';
-    } else {
-        subtitleStatus.textContent = 'Waiting for speech...';
-        subtitleStatus.className = 'subtitle-status';
-        subtitleText.className = 'subtitle-text';
     }
 
     // 선택된 언어의 자막 표시
     if (selectedLanguage && subtitles && subtitles[selectedLanguage]) {
         const text = subtitles[selectedLanguage];
-        subtitleText.textContent = text;
 
-        // Final 번역일 때만 TTS 실행
-        if (type === 'final' && text !== currentSubtitle) {
+        if (type === 'realtime') {
+            subtitleRealtime.textContent = text;
+        } else if (type === 'final' && text !== currentSubtitle) {
             currentSubtitle = text;
-            btnSpeak.disabled = false;
+            subtitleRealtime.textContent = '';
 
+            // 문장 단위로 분리하여 각각 entry로 추가
+            const sentences = splitSentences(text);
+            sentences.forEach(sentence => {
+                const entry = document.createElement('div');
+                entry.className = 'subtitle-entry';
+                entry.textContent = sentence;
+                subtitleHistory.appendChild(entry);
+            });
+
+            // 자동 스크롤
+            subtitleHistory.scrollTop = subtitleHistory.scrollHeight;
+
+            btnSpeak.disabled = false;
             if (isTTSEnabled) {
                 speakText(text);
             }
         }
     } else if (!selectedLanguage) {
-        subtitleText.textContent = 'Please select a language above';
+        if (subtitleHistory.children.length === 0) {
+            subtitleRealtime.textContent = 'Please select a language above';
+        }
     }
+}
+
+/**
+ * 문장 종결 부호(. ! ? 。 ！ ？) 기준으로 텍스트를 분리
+ */
+function splitSentences(text) {
+    const parts = text.split(SENTENCE_END_RE).filter(s => s.trim().length > 0);
+    if (parts.length === 0) return [text];
+    return parts;
 }
 
 // ========================
@@ -192,14 +230,13 @@ function checkTTSSupport() {
     if (!('speechSynthesis' in window)) {
         ttsToggle.disabled = true;
         btnSpeak.disabled = true;
-        document.querySelector('.tts-label').textContent = 'TTS not supported';
+        document.querySelector('.tts-label').textContent = 'N/A';
     }
 }
 
 function speakText(text) {
     if (!text || !speechSynthesis) return;
 
-    // 이전 발화 중지
     speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(text);
@@ -207,7 +244,6 @@ function speakText(text) {
     utterance.rate = ttsSpeed;
     utterance.pitch = 1;
 
-    // 해당 언어의 음성 찾기
     const voices = speechSynthesis.getVoices();
     const langVoice = voices.find(v => v.lang.startsWith(selectedLanguage) || v.lang === utterance.lang);
     if (langVoice) {
@@ -217,27 +253,14 @@ function speakText(text) {
     utterance.onstart = () => {
         isSpeaking = true;
         btnSpeak.classList.add('speaking');
-        btnSpeak.innerHTML = `
-            <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M6 6h12v12H6z"/>
-            </svg>
-            Stop
-        `;
     };
 
     utterance.onend = () => {
         isSpeaking = false;
         btnSpeak.classList.remove('speaking');
-        btnSpeak.innerHTML = `
-            <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
-            </svg>
-            Speak
-        `;
     };
 
-    utterance.onerror = (e) => {
-        console.error('TTS Error:', e);
+    utterance.onerror = () => {
         isSpeaking = false;
         btnSpeak.classList.remove('speaking');
     };
@@ -250,12 +273,6 @@ function stopSpeaking() {
         speechSynthesis.cancel();
         isSpeaking = false;
         btnSpeak.classList.remove('speaking');
-        btnSpeak.innerHTML = `
-            <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
-            </svg>
-            Speak
-        `;
     }
 }
 
@@ -268,11 +285,10 @@ function initEventListeners() {
         selectedLanguage = e.target.value;
         localStorage.setItem('selectedLanguage', selectedLanguage);
 
-        if (selectedLanguage) {
-            subtitleText.textContent = 'Waiting for translation...';
-        } else {
-            subtitleText.textContent = 'Please select a language above';
-        }
+        subtitleHistory.innerHTML = '';
+        subtitleRealtime.textContent = selectedLanguage
+            ? 'Waiting for translation...'
+            : 'Please select a language above';
         currentSubtitle = '';
         btnSpeak.disabled = true;
     });
@@ -317,10 +333,12 @@ function initEventListeners() {
     // Theme toggle
     themeToggle.addEventListener('click', toggleTheme);
 
-    // Load voices (some browsers load them async)
+    // Font size controls
+    fontIncrease.addEventListener('click', () => changeFontSize(FONT_SIZE_STEP));
+    fontDecrease.addEventListener('click', () => changeFontSize(-FONT_SIZE_STEP));
+
+    // Load voices
     if (speechSynthesis) {
-        speechSynthesis.onvoiceschanged = () => {
-            // Voices loaded
-        };
+        speechSynthesis.onvoiceschanged = () => {};
     }
 }
