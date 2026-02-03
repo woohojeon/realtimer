@@ -2085,7 +2085,7 @@ class SubtitleOverlay(ResizableWindow):
 
             # 태그 설정
             subtitle_text.tag_configure("final", foreground=COLORS['text_primary'])
-            subtitle_text.tag_configure("realtime", foreground=COLORS['secondary'])
+            subtitle_text.tag_configure("realtime", foreground=COLORS['text_primary'])
             subtitle_text.tag_configure("dim", foreground=COLORS['text_dim'])
 
             self.subtitle_texts[lang_code] = subtitle_text
@@ -2577,7 +2577,7 @@ Text: {source_text}"""
         for lang_code, tw in self.subtitle_texts.items():
             tw.config(bg=COLORS['bg_card'], fg=COLORS['text_primary'])
             tw.tag_configure("final", foreground=COLORS['text_primary'])
-            tw.tag_configure("realtime", foreground=COLORS['secondary'])
+            tw.tag_configure("realtime", foreground=COLORS['text_primary'])
             tw.tag_configure("dim", foreground=COLORS['text_dim'])
 
     def _apply_theme_to_widget(self, widget):

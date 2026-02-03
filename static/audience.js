@@ -176,7 +176,7 @@ function handleSubtitleUpdate(data) {
     const { type, data: subtitles } = data;
 
     if (type === 'processing') {
-        subtitleRealtime.textContent = '...';
+        setRealtimeText('...');
         return;
     }
 
@@ -185,10 +185,10 @@ function handleSubtitleUpdate(data) {
         const text = subtitles[selectedLanguage];
 
         if (type === 'realtime') {
-            subtitleRealtime.textContent = text;
+            setRealtimeText(text);
         } else if (type === 'final' && text !== currentSubtitle) {
             currentSubtitle = text;
-            subtitleRealtime.textContent = '';
+            resetRealtimeText();
 
             // 문장 단위로 분리하여 각각 entry로 추가
             const sentences = splitSentences(text);
@@ -221,6 +221,31 @@ function splitSentences(text) {
     const parts = text.split(SENTENCE_END_RE).filter(s => s.trim().length > 0);
     if (parts.length === 0) return [text];
     return parts;
+}
+
+// ========================
+// Realtime text auto-shrink
+// ========================
+/**
+ * 실시간 텍스트를 고정 영역 안에 맞추어 폰트 축소
+ */
+function setRealtimeText(text) {
+    // 기본 크기로 복원 후 텍스트 세팅
+    subtitleRealtime.style.fontSize = '';
+    subtitleRealtime.textContent = text;
+
+    // 넘치면 폰트를 줄여서 맞추기
+    let size = parseFloat(getComputedStyle(subtitleRealtime).fontSize);
+    const minSize = 10; // px 최소값
+    while (subtitleRealtime.scrollHeight > subtitleRealtime.clientHeight && size > minSize) {
+        size -= 1;
+        subtitleRealtime.style.fontSize = size + 'px';
+    }
+}
+
+function resetRealtimeText() {
+    subtitleRealtime.style.fontSize = '';
+    subtitleRealtime.textContent = '';
 }
 
 // ========================
