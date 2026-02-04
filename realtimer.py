@@ -232,6 +232,39 @@ history = deque(maxlen=5)
 last_realtime_translation = ''
 terminology_list = []  # 전문용어 리스트 (영어)
 
+# 모델 호환성 자동 감지
+_model_lower = OPENAI_MODEL.lower()
+_is_reasoning_model = _model_lower.startswith(('o1', 'o3', 'o4', 'gpt-5'))
+_no_temperature = _is_reasoning_model
+
+def _llm_call(messages, temperature=0.0, max_tokens_val=500):
+    """OpenAI API 호출 래퍼 (모델 비호환 파라미터 자동 감지/제거)"""
+    global _no_temperature
+
+    def _build_kwargs():
+        kwargs = {"model": OPENAI_MODEL, "messages": messages}
+        if not _no_temperature:
+            kwargs["temperature"] = temperature
+        kwargs["max_completion_tokens"] = max_tokens_val
+        return kwargs
+
+    print(f"[LLM] 호출: model={OPENAI_MODEL}, no_temperature={_no_temperature}")
+    last_error = None
+    for attempt in range(3):
+        try:
+            return client.chat.completions.create(**_build_kwargs())
+        except Exception as e:
+            last_error = e
+            err = str(e)
+            changed = False
+            if 'temperature' in err and 'unsupported' in err.lower():
+                _no_temperature = True
+                changed = True
+            if not changed:
+                raise
+            print(f"[LLM] 파라미터 자동 조정 (시도 {attempt+1}): no_temperature={_no_temperature}")
+    raise last_error
+
 # 다국어 설정
 LANGUAGES = {
     'ko': {'name': '한국어', 'code': 'ko-KR', 'flag': '🇰🇷'},
@@ -366,12 +399,7 @@ def extract_terminology_with_gpt(text):
 {text[:4000]}"""
 
         print(f"[GPT] API 호출 중... (모델: {OPENAI_MODEL})")
-        resp = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.0,
-            max_tokens=500
-        )
+        resp = _llm_call([{"role": "user", "content": prompt}], temperature=0.0, max_tokens_val=500)
 
         result = resp.choices[0].message.content.strip()
         print(f"[GPT] 응답 수신: {result[:200]}...")
@@ -813,7 +841,7 @@ class SettingsWindow(ResizableWindow):
         self.setup_ui()
 
         # 가장자리 리사이즈 기능 설정
-        self.setup_resizable(min_width=500, min_height=630)
+        self.setup_resizable(min_width=50, min_height=50)
 
         # 둥근 모서리 적용
         self.root.update_idletasks()
@@ -862,7 +890,7 @@ class SettingsWindow(ResizableWindow):
             padx=8
         )
         minimize_btn.pack(side="left", padx=2)
-        minimize_btn.bind("<Button-1>", lambda e: self.root.iconify())
+        minimize_btn.bind("<Button-1>", lambda e: self._minimize_window())
         minimize_btn.bind("<Enter>", lambda e: minimize_btn.config(fg=COLORS['primary']))
         minimize_btn.bind("<Leave>", lambda e: minimize_btn.config(fg=COLORS['text_dim']))
 
@@ -1207,6 +1235,16 @@ class SettingsWindow(ResizableWindow):
 
         # ESC로 닫기
         self.root.bind("<Escape>", lambda e: self.root.destroy())
+
+    def _minimize_window(self):
+        """overrideredirect 창 최소화 (Windows 우회)"""
+        self.root.overrideredirect(False)
+        self.root.iconify()
+        def _on_restore(event):
+            if self.root.state() == 'normal':
+                self.root.overrideredirect(True)
+                self.root.unbind("<Map>")
+        self.root.bind("<Map>", _on_restore)
 
     def start_drag(self, event):
         """드래그 시작"""
@@ -2209,10 +2247,41 @@ class SubtitleOverlay(ResizableWindow):
         self.dark_btn.bind("<Enter>", lambda e: self.dark_btn.config(fg=COLORS['primary']))
         self.dark_btn.bind("<Leave>", lambda e: self.dark_btn.config(fg=COLORS['text_dim']))
 
+        # 번역 일시정지/재개 버튼
+        self.pause_btn = tk.Label(
+            btn_container,
+            text="Pause",
+            font=("Segoe UI", 9, "bold"),
+            fg=COLORS['accent_mint'],
+            bg=COLORS['bg_card'],
+            cursor="hand2",
+            padx=8
+        )
+        self.pause_btn.pack(side="left", padx=3)
+        self.pause_btn.bind("<Button-1>", lambda e: self.toggle_pause())
+        self.pause_btn.bind("<Enter>", lambda e: self.pause_btn.config(
+            fg=COLORS['danger'] if is_listening else COLORS['success']))
+        self.pause_btn.bind("<Leave>", lambda e: self._update_pause_btn_style())
+
+        # Settings 바로가기 버튼
+        self.go_settings_btn = tk.Label(
+            btn_container,
+            text="Settings",
+            font=("Segoe UI", 9),
+            fg=COLORS['text_dim'],
+            bg=COLORS['bg_card'],
+            cursor="hand2",
+            padx=8
+        )
+        self.go_settings_btn.pack(side="left", padx=3)
+        self.go_settings_btn.bind("<Button-1>", lambda e: self._go_settings_direct())
+        self.go_settings_btn.bind("<Enter>", lambda e: self.go_settings_btn.config(fg=COLORS['primary']))
+        self.go_settings_btn.bind("<Leave>", lambda e: self.go_settings_btn.config(fg=COLORS['text_dim']))
+
         # 세션 종료 & 저장 버튼
         self.settings_btn = tk.Label(
             btn_container,
-            text="End & Save",
+            text="Save .txt",
             font=("Segoe UI", 9, "bold"),
             fg=COLORS['accent_mint'],
             bg=COLORS['bg_card'],
@@ -2223,6 +2292,21 @@ class SubtitleOverlay(ResizableWindow):
         self.settings_btn.bind("<Button-1>", lambda e: self.back_to_settings())
         self.settings_btn.bind("<Enter>", lambda e: self.settings_btn.config(fg=COLORS['primary']))
         self.settings_btn.bind("<Leave>", lambda e: self.settings_btn.config(fg=COLORS['accent_mint']))
+
+        # 최소화 버튼
+        self.minimize_btn = tk.Label(
+            btn_container,
+            text="─",
+            font=("Segoe UI", 10),
+            fg=COLORS['text_dim'],
+            bg=COLORS['bg_card'],
+            cursor="hand2",
+            padx=8
+        )
+        self.minimize_btn.pack(side="left", padx=3)
+        self.minimize_btn.bind("<Button-1>", lambda e: self._minimize_window())
+        self.minimize_btn.bind("<Enter>", lambda e: self.minimize_btn.config(fg=COLORS['primary']))
+        self.minimize_btn.bind("<Leave>", lambda e: self.minimize_btn.config(fg=COLORS['text_dim']))
 
         # 종료 버튼
         self.close_btn = tk.Label(
@@ -2332,7 +2416,7 @@ class SubtitleOverlay(ResizableWindow):
             self.root.after(500, self.start_listening)
 
         # 가장자리 리사이즈 기능 설정
-        self.setup_resizable(min_width=400, min_height=80)
+        self.setup_resizable(min_width=50, min_height=50)
 
         # 둥근 모서리 적용
         self.root.update_idletasks()
@@ -2714,6 +2798,7 @@ class SubtitleOverlay(ResizableWindow):
 
     def realtime_translate(self, source_text):
         """실시간 번역 (여러 언어 동시)"""
+        print(f"[번역] 실시간 번역 시작: '{source_text[:50]}...'")
         try:
             term_hint = ""
             if terminology_list:
@@ -2722,20 +2807,16 @@ class SubtitleOverlay(ResizableWindow):
             # 타겟 언어 목록
             target_lang_names = [LANGUAGES[lc]['name'] for lc in target_languages if lc in LANGUAGES]
 
-            prompt = f"""Translate the following text to these languages: {', '.join(target_lang_names)}.
+            prompt = f"""you are a aimultanous interpreter in veterinary medicine, medicine, biology and life science. Translate the following text to these languages.: {', '.join(target_lang_names)}.
 {term_hint}
 Format: Output each translation on a new line with language code prefix like:
 {chr(10).join([f'{lc}: [translation]' for lc in target_languages])}
 
 Text: {source_text}"""
 
-            resp = client.chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,
-                max_tokens=200
-            )
+            resp = _llm_call([{"role": "user", "content": prompt}], temperature=0.0, max_tokens_val=200)
             result = resp.choices[0].message.content.strip()
+            print(f"[번역] 실시간 응답: '{result[:100]}'")
 
             # 결과 파싱
             translations = {}
@@ -2747,12 +2828,14 @@ Text: {source_text}"""
                     translation = parts[1].strip()
                     translations[lang_code] = translation
 
+            print(f"[번역] 실시간 파싱 결과: {translations}")
             subtitle_queue.put(("realtime", translations))
         except Exception as e:
             print(f"번역 오류: {e}")
 
     def translate_final(self, source_text):
         """최종 번역 (여러 언어 동시)"""
+        print(f"[번역] 최종 번역 시작: '{source_text[:50]}...'")
         try:
             context = ""
             if history:
@@ -2773,13 +2856,9 @@ Format: Output each translation on a new line with language code prefix like:
 
 Text: {source_text}"""
 
-            resp = client.chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,
-                max_tokens=300
-            )
+            resp = _llm_call([{"role": "user", "content": prompt}], temperature=0.0, max_tokens_val=300)
             result = resp.choices[0].message.content.strip()
+            print(f"[번역] 최종 응답: '{result[:100]}'")
 
             # 결과 파싱
             translations = {}
@@ -2791,11 +2870,28 @@ Text: {source_text}"""
                     translation = parts[1].strip()
                     translations[lang_code] = translation
 
+            print(f"[번역] 최종 파싱 결과: {translations}")
             history.append((source_text, translations))
             self.full_history.append((source_text, translations))
             subtitle_queue.put(("final", translations))
         except Exception as e:
             print(f"번역 오류: {e}")
+
+    def toggle_pause(self):
+        """번역 일시정지/재개 토글"""
+        if is_listening:
+            self.stop_listening()
+            self.pause_btn.config(text="Resume", fg=COLORS['success'])
+        else:
+            self.start_listening()
+            self.pause_btn.config(text="Pause", fg=COLORS['accent_mint'])
+
+    def _update_pause_btn_style(self):
+        """Pause 버튼 스타일 업데이트"""
+        if is_listening:
+            self.pause_btn.config(fg=COLORS['accent_mint'])
+        else:
+            self.pause_btn.config(fg=COLORS['success'])
 
     def start_listening(self):
         """음성 인식 시작"""
@@ -2883,6 +2979,30 @@ Text: {source_text}"""
         for child in widget.winfo_children():
             self._apply_theme_to_widget(child)
 
+    def _minimize_window(self):
+        """overrideredirect 창 최소화 (Windows 우회)"""
+        self.root.overrideredirect(False)
+        self.root.iconify()
+        def _on_restore(event):
+            if self.root.state() == 'normal':
+                self.root.overrideredirect(True)
+                self.root.attributes("-topmost", True)
+                self.root.unbind("<Map>")
+        self.root.bind("<Map>", _on_restore)
+
+    def _go_settings_direct(self):
+        """저장 없이 바로 설정 화면으로 돌아가기"""
+        global is_listening
+        is_listening = False
+        if self.speech_recognizer:
+            try:
+                self.speech_recognizer.stop_continuous_recognition_async()
+            except:
+                pass
+        self.go_back = True
+        self.root.quit()
+        self.root.destroy()
+
     def back_to_settings(self):
         """세션 종료 - 기록이 있으면 다운로드 모달 표시"""
         global is_listening
@@ -2894,29 +3014,19 @@ Text: {source_text}"""
                 pass
         self.status_label.config(text="Stopped", fg=COLORS['text_dim'])
 
-        if self.full_history:
-            self._show_download_modal()
-        else:
-            self.go_back = True
-            self.root.quit()
-            self.root.destroy()
+        self._show_download_modal()
 
     def _back_translate_korean(self, english_texts, source_texts):
         """영어 번역문들을 한국어로 역번역 (LLM 경유로 정확도 향상)"""
         try:
             combined = "\n".join([f"{i+1}. {t}" for i, t in enumerate(english_texts)])
-            prompt = f"""You are a professional English-to-Korean translator.
+            prompt = f"""You are a professional English-to-Korean translator especiaaly in veterinary medicine and life science, biology.
 Translate each numbered English sentence below into natural Korean.
 Keep the numbering. Output ONLY the Korean translations, one per line.
 
 {combined}"""
 
-            resp = client.chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,
-                max_tokens=2000
-            )
+            resp = _llm_call([{"role": "user", "content": prompt}], temperature=0.0, max_tokens_val=2000)
             result = resp.choices[0].message.content.strip()
             print(f"[역번역] 응답: {result[:200]}...")
 
@@ -3011,12 +3121,7 @@ Format:
             prompt += f"""Original text:
 {source_text[:3000]}"""
 
-            resp = client.chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=800
-            )
+            resp = _llm_call([{"role": "user", "content": prompt}], temperature=0.3, max_tokens_val=800)
             summary = resp.choices[0].message.content.strip()
 
             lines = []
@@ -3249,6 +3354,15 @@ Format:
             tw.config(state="disabled")
             self._realtime_tags[lang_code] = False
 
+    def _center_scroll(self, tw):
+        """최신 자막을 화면 정중앙에 위치시킴"""
+        tw.see("end")
+        tw.update_idletasks()
+        start, end = tw.yview()
+        visible = end - start
+        target = max(0.0, 1.0 - visible / 2)
+        tw.yview_moveto(target)
+
     def _append_realtime(self, lang_code, text):
         """실시간 번역 임시 텍스트 표시 (기존 확정 텍스트 뒤에)"""
         tw = self.subtitle_texts.get(lang_code)
@@ -3259,7 +3373,7 @@ Format:
         tw.mark_set("realtime_start", "end-1c")
         tw.mark_gravity("realtime_start", "left")
         tw.insert("end", "\n" + text if tw.get("1.0", "end").strip() else text, "realtime")
-        tw.see("end")
+        self._center_scroll(tw)
         tw.config(state="disabled")
         self._realtime_tags[lang_code] = True
 
@@ -3274,7 +3388,7 @@ Format:
             tw.insert("end", "\n\n" + text, "final")
         else:
             tw.insert("end", text, "final")
-        tw.see("end")
+        self._center_scroll(tw)
         tw.config(state="disabled")
 
     def _show_dim(self, lang_code, text):
@@ -3287,7 +3401,7 @@ Format:
         tw.mark_set("realtime_start", "end-1c")
         tw.mark_gravity("realtime_start", "left")
         tw.insert("end", "\n" + text if tw.get("1.0", "end").strip() else text, "dim")
-        tw.see("end")
+        self._center_scroll(tw)
         tw.config(state="disabled")
         self._realtime_tags[lang_code] = True
 
