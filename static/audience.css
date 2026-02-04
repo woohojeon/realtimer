@@ -79,9 +79,7 @@ html, body {
 }
 
 .connection-status {
-    display: flex;
-    align-items: center;
-    flex-shrink: 0;
+    display: none;
 }
 
 .status-dot {
@@ -164,7 +162,7 @@ html, body {
 .subtitle-container {
     flex: 1;
     background: var(--bg-card);
-    padding: 14px;
+    padding: 14px 0;
     border-radius: 12px;
     box-shadow: 0 1px 4px var(--shadow);
     display: flex;
@@ -412,6 +410,10 @@ input:checked + .slider:before {
 /* ========================
    Safe area for notch devices
    ======================== */
+/* ========================
+   모바일: 아래 여백 없음
+   ======================== */
+
 @supports (padding-top: env(safe-area-inset-top)) {
     .container {
         padding-top: calc(6px + env(safe-area-inset-top));

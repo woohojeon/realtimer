@@ -2191,6 +2191,23 @@ class SubtitleOverlay(ResizableWindow):
             )
             self.client_count_label.pack(side="left", padx=(0, 5))
 
+        # 자막 위치 토글 버튼 (3/4 배치)
+        self.spacer_btn = tk.Label(
+            btn_container,
+            text="▲",
+            font=("Segoe UI", 10),
+            fg=COLORS['text_dim'],
+            bg=COLORS['bg_card'],
+            cursor="hand2",
+            padx=8
+        )
+        self.spacer_btn.pack(side="left", padx=3)
+        self.spacer_btn.bind("<Button-1>", lambda e: self._toggle_spacer())
+        self.spacer_btn.bind("<Enter>", lambda e: self.spacer_btn.config(fg=COLORS['primary']))
+        self.spacer_btn.bind("<Leave>", lambda e: self.spacer_btn.config(
+            fg=COLORS['primary'] if self._spacer_visible else COLORS['text_dim']
+        ))
+
         # 폰트 크기 조절
         self.subtitle_font_size = 14
 
@@ -2326,9 +2343,13 @@ class SubtitleOverlay(ResizableWindow):
         # 전체 기록 저장 (다운로드용)
         self.full_history = []  # [(source_text, {lang: translation, ...}), ...]
 
-        # 자막 컨테이너 (여러 언어 표시, 스크롤 가능)
+        # 자막 컨테이너 (여러 언어 표시)
         subtitle_container = tk.Frame(main_frame, bg=COLORS['bg_card'])
         subtitle_container.pack(expand=True, fill="both", padx=20, pady=(0, 10))
+
+        # 하단 여백 (토글용, 초기 숨김)
+        self._bottom_spacer = tk.Frame(main_frame, bg=COLORS['bg_card'])
+        self._spacer_visible = False
 
         # 각 타겟 언어별 스크롤 가능한 자막 영역 생성
         self.subtitle_texts = {}    # lang_code -> Text widget (누적 표시용)
@@ -2340,17 +2361,6 @@ class SubtitleOverlay(ResizableWindow):
 
             row_frame = tk.Frame(subtitle_container, bg=COLORS['bg_card'])
             row_frame.pack(fill="both", expand=True, pady=2)
-
-            # 언어 플래그
-            flag_label = tk.Label(
-                row_frame,
-                text=lang_info['flag'],
-                font=("Segoe UI", 12),
-                fg=COLORS['text_secondary'],
-                bg=COLORS['bg_card'],
-                width=3
-            )
-            flag_label.pack(side="left", anchor="n", pady=3)
 
             # 자막 Text 위젯 (누적 표시)
             subtitle_text = tk.Text(
@@ -2978,6 +2988,20 @@ Text: {source_text}"""
 
         for child in widget.winfo_children():
             self._apply_theme_to_widget(child)
+
+    def _toggle_spacer(self):
+        """자막 하단 여백 토글 (화면 1/4 여백 → 자막 3/4 영역)"""
+        if self._spacer_visible:
+            self._bottom_spacer.pack_forget()
+            self._spacer_visible = False
+            self.spacer_btn.config(fg=COLORS['text_dim'])
+        else:
+            h = self.root.winfo_height() // 4
+            self._bottom_spacer.config(height=h)
+            self._bottom_spacer.pack(fill="x")
+            self._bottom_spacer.pack_propagate(False)
+            self._spacer_visible = True
+            self.spacer_btn.config(fg=COLORS['primary'])
 
     def _minimize_window(self):
         """overrideredirect 창 최소화 (Windows 우회)"""
