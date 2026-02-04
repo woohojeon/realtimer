@@ -7,6 +7,7 @@ import queue
 from openai import OpenAI
 from collections import deque
 import os
+import json
 from dotenv import load_dotenv
 import sys
 import time
@@ -357,6 +358,30 @@ def set_theme(dark_mode):
         COLORS = COLORS_DARK.copy()
     else:
         COLORS = COLORS_LIGHT.copy()
+
+# ========================
+# 단어장 저장/불러오기
+# ========================
+GLOSSARY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'glossary.json')
+
+def load_glossary():
+    """저장된 단어장 불러오기"""
+    try:
+        if os.path.exists(GLOSSARY_FILE):
+            with open(GLOSSARY_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data if isinstance(data, list) else []
+    except Exception as e:
+        print(f"[Glossary] 불러오기 실패: {e}")
+    return []
+
+def save_glossary(terms):
+    """단어장 파일로 저장"""
+    try:
+        with open(GLOSSARY_FILE, 'w', encoding='utf-8') as f:
+            json.dump(terms, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[Glossary] 저장 실패: {e}")
 
 # ========================
 # 3. PDF 전문용어 추출
@@ -1218,6 +1243,11 @@ class SettingsWindow(ResizableWindow):
         self.glossary_canvas.bind("<MouseWheel>", self._on_glossary_scroll)
         self.glossary_frame.bind("<MouseWheel>", self._on_glossary_scroll)
 
+        # 저장된 단어장 불러오기
+        saved_terms = load_glossary()
+        for term in saved_terms:
+            self.add_glossary_row_with_text(term)
+
         # 시작 버튼
         start_btn = tk.Label(
             container,
@@ -1579,6 +1609,9 @@ class SettingsWindow(ResizableWindow):
         self.glossary_entries.append((text, tag_frame))
         self.glossary_canvas.update_idletasks()
         self.glossary_canvas.configure(scrollregion=self.glossary_canvas.bbox("all"))
+
+        # 파일에 저장
+        save_glossary([t for t, _ in self.glossary_entries])
 
     def show_mic_dropdown(self):
         """마이크 선택 드롭다운 표시"""
@@ -2082,6 +2115,9 @@ class SettingsWindow(ResizableWindow):
         self.glossary_canvas.update_idletasks()
         self.glossary_canvas.configure(scrollregion=self.glossary_canvas.bbox("all"))
 
+        # 파일에 저장
+        save_glossary([t for t, _ in self.glossary_entries])
+
     def start_overlay(self):
         """설정 저장 후 오버레이 시작"""
         global source_language, target_languages, terminology_list
@@ -2125,7 +2161,10 @@ class SubtitleOverlay(ResizableWindow):
         # 창 설정
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
-        self.root.attributes("-alpha", 0.95)
+        self.root.attributes("-alpha", 1.0)
+
+        # 배경 투명도
+        self.bg_opacity = 0.95
 
         # 화면 하단 위치 (언어 수에 따라 높이 조정)
         screen_w = self.root.winfo_screenwidth()
@@ -2140,6 +2179,17 @@ class SubtitleOverlay(ResizableWindow):
 
         self.root.geometry(f"{self.overlay_width}x{self.overlay_height}+{x_pos}+{y_pos}")
         self.root.configure(bg=COLORS['bg_card'])
+
+        # 배경 투명도 전용 윈도우 (전체 창 뒤에 위치)
+        self._bg_window = tk.Toplevel(self.root)
+        self._bg_window.overrideredirect(True)
+        self._bg_window.attributes("-topmost", True)
+        self._bg_window.attributes("-alpha", self.bg_opacity)
+        self._bg_window.configure(bg=COLORS['bg_card'])
+        self._bg_window.geometry(f"{self.overlay_width}x{self.overlay_height}+{x_pos}+{y_pos}")
+        self._bg_window.lower(self.root)
+        # 메인 창의 bg_card 색상을 투명 처리 → 글씨만 남음
+        self.root.attributes("-transparentcolor", COLORS['bg_card'])
 
         # 메인 프레임
         main_frame = tk.Frame(self.root, bg=COLORS['bg_card'])
@@ -2427,6 +2477,47 @@ class SubtitleOverlay(ResizableWindow):
 
         # 가장자리 리사이즈 기능 설정
         self.setup_resizable(min_width=50, min_height=50)
+
+        # 배경 투명도 버튼 (우측 하단)
+        opacity_frame = tk.Frame(main_frame, bg=COLORS['bg_card'])
+        opacity_frame.place(relx=1.0, rely=1.0, anchor="se", x=-8, y=-4)
+
+        opacity_down_btn = tk.Label(
+            opacity_frame, text="BG-", font=("Segoe UI", 9),
+            fg=COLORS['text_dim'], bg=COLORS['bg_card'], cursor="hand2", padx=4
+        )
+        opacity_down_btn.pack(side="left", padx=1)
+        opacity_down_btn.bind("<Button-1>", lambda e: self._change_opacity(-0.1))
+        opacity_down_btn.bind("<Enter>", lambda e: opacity_down_btn.config(fg=COLORS['primary']))
+        opacity_down_btn.bind("<Leave>", lambda e: opacity_down_btn.config(fg=COLORS['text_dim']))
+
+        self._opacity_label = tk.Label(
+            opacity_frame, text="95%", font=("Segoe UI", 8),
+            fg=COLORS['text_secondary'], bg=COLORS['bg_card'], padx=2
+        )
+        self._opacity_label.pack(side="left")
+
+        opacity_up_btn = tk.Label(
+            opacity_frame, text="BG+", font=("Segoe UI", 9),
+            fg=COLORS['text_dim'], bg=COLORS['bg_card'], cursor="hand2", padx=4
+        )
+        opacity_up_btn.pack(side="left", padx=1)
+        opacity_up_btn.bind("<Button-1>", lambda e: self._change_opacity(0.1))
+        opacity_up_btn.bind("<Enter>", lambda e: opacity_up_btn.config(fg=COLORS['primary']))
+        opacity_up_btn.bind("<Leave>", lambda e: opacity_up_btn.config(fg=COLORS['text_dim']))
+
+        # 배경 윈도우 위치 동기화
+        self.root.bind("<Configure>", self._sync_bg_window)
+
+        # bg_window 드래그/리사이즈 (투명 영역 클릭 시 bg_window가 받음)
+        self._bg_drag_x = 0
+        self._bg_drag_y = 0
+        self._bg_resize_edge = None
+        self._bg_resize_data = {}
+        self._bg_window.bind("<Button-1>", self._bg_mouse_down)
+        self._bg_window.bind("<B1-Motion>", self._bg_mouse_drag)
+        self._bg_window.bind("<ButtonRelease-1>", self._bg_mouse_up)
+        self._bg_window.bind("<Motion>", self._bg_mouse_move)
 
         # 둥근 모서리 적용
         self.root.update_idletasks()
@@ -2738,6 +2829,14 @@ class SubtitleOverlay(ResizableWindow):
                 speech_config=speech_config,
                 audio_config=audio_config
             )
+
+            # 단어장 용어를 PhraseList에 등록 (STT 인식률 향상)
+            if terminology_list:
+                phrase_list = speechsdk.PhraseListGrammar.from_recognizer(self.speech_recognizer)
+                for term in terminology_list:
+                    phrase_list.addPhrase(term)
+                print(f"[STT] PhraseList 등록: {len(terminology_list)}개 용어")
+
             self.speech_recognizer.recognized.connect(self.on_recognized)
             self.speech_recognizer.recognizing.connect(self.on_recognizing)
             self.speech_recognizer.canceled.connect(self.on_canceled)
@@ -2932,8 +3031,18 @@ Text: {source_text}"""
 
     def apply_theme(self):
         """오버레이에 테마 적용"""
+        # 투명 컬러를 새 테마의 bg_card로 갱신
+        self.root.attributes("-transparentcolor", COLORS['bg_card'])
+
         # 루트 윈도우
         self.root.configure(bg=COLORS['bg_card'])
+
+        # 배경 윈도우 테마 업데이트
+        try:
+            if self._bg_window.winfo_exists():
+                self._bg_window.configure(bg=COLORS['bg_card'])
+        except:
+            pass
 
         # 모든 위젯 업데이트
         self._apply_theme_to_widget(self.root)
@@ -3023,6 +3132,11 @@ Text: {source_text}"""
                 self.speech_recognizer.stop_continuous_recognition_async()
             except:
                 pass
+        try:
+            if self._bg_window.winfo_exists():
+                self._bg_window.destroy()
+        except:
+            pass
         self.go_back = True
         self.root.quit()
         self.root.destroy()
@@ -3352,9 +3466,99 @@ Format:
                 self.speech_recognizer.stop_continuous_recognition_async()
             except:
                 pass
+        try:
+            if self._bg_window.winfo_exists():
+                self._bg_window.destroy()
+        except:
+            pass
         self.go_back = False
         self.root.quit()
         self.root.destroy()
+
+    def _sync_bg_window(self, event=None):
+        """배경 윈도우를 메인 윈도우와 동기화"""
+        try:
+            if not self._bg_window.winfo_exists():
+                return
+            geo = self.root.geometry()
+            self._bg_window.geometry(geo)
+            self._bg_window.lower(self.root)
+        except:
+            pass
+
+    def _bg_mouse_move(self, event):
+        """bg_window 마우스 이동 - 커서 변경"""
+        edge = self._bg_get_edge(event.x, event.y)
+        cursor_map = {
+            "n": "top_side", "s": "bottom_side", "e": "right_side", "w": "left_side",
+            "ne": "top_right_corner", "nw": "top_left_corner",
+            "se": "bottom_right_corner", "sw": "bottom_left_corner",
+        }
+        self._bg_window.config(cursor=cursor_map.get(edge, ""))
+
+    def _bg_get_edge(self, x, y):
+        """bg_window 가장자리 판별"""
+        w = self._bg_window.winfo_width()
+        h = self._bg_window.winfo_height()
+        edge = ""
+        if y < 6: edge += "n"
+        elif y > h - 6: edge += "s"
+        if x < 6: edge += "w"
+        elif x > w - 6: edge += "e"
+        return edge if edge else None
+
+    def _bg_mouse_down(self, event):
+        """bg_window 클릭 - 드래그 또는 리사이즈 시작"""
+        edge = self._bg_get_edge(event.x, event.y)
+        if edge:
+            self._bg_resize_edge = edge
+            self._bg_resize_data = {
+                'x': event.x_root, 'y': event.y_root,
+                'w': self.root.winfo_width(), 'h': self.root.winfo_height(),
+                'px': self.root.winfo_x(), 'py': self.root.winfo_y()
+            }
+        else:
+            self._bg_resize_edge = None
+            self._bg_drag_x = event.x
+            self._bg_drag_y = event.y
+
+    def _bg_mouse_drag(self, event):
+        """bg_window 드래그 - 양쪽 창 이동 또는 리사이즈"""
+        if self._bg_resize_edge:
+            d = self._bg_resize_data
+            dx = event.x_root - d['x']
+            dy = event.y_root - d['y']
+            new_x, new_y, new_w, new_h = d['px'], d['py'], d['w'], d['h']
+            edge = self._bg_resize_edge
+            if "e" in edge: new_w = max(50, d['w'] + dx)
+            if "w" in edge:
+                new_w = max(50, d['w'] - dx)
+                if new_w > 50: new_x = d['px'] + dx
+            if "s" in edge: new_h = max(50, d['h'] + dy)
+            if "n" in edge:
+                new_h = max(50, d['h'] - dy)
+                if new_h > 50: new_y = d['py'] + dy
+            geo = f"{new_w}x{new_h}+{new_x}+{new_y}"
+            self.root.geometry(geo)
+            self._bg_window.geometry(geo)
+        else:
+            x = self._bg_window.winfo_x() + event.x - self._bg_drag_x
+            y = self._bg_window.winfo_y() + event.y - self._bg_drag_y
+            self.root.geometry(f"+{x}+{y}")
+            self._bg_window.geometry(f"+{x}+{y}")
+
+    def _bg_mouse_up(self, event):
+        """bg_window 마우스 해제"""
+        self._bg_resize_edge = None
+
+    def _change_opacity(self, delta):
+        """배경 투명도 변경"""
+        new_opacity = round(self.bg_opacity + delta, 2)
+        if new_opacity < 0.1 or new_opacity > 1.0:
+            return
+        self.bg_opacity = new_opacity
+        self._bg_window.attributes("-alpha", new_opacity)
+        self._opacity_label.config(text=f"{int(new_opacity * 100)}%")
 
     def _change_font_size(self, delta):
         """자막 폰트 크기 변경"""
