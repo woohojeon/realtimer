@@ -205,7 +205,11 @@ except ImportError:
 # ========================
 # 1. API 설정 (환경 변수에서 자동 로드)
 # ========================
-load_dotenv()
+if getattr(sys, 'frozen', False):
+    _base_dir = sys._MEIPASS
+else:
+    _base_dir = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(_base_dir, '.env'))
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
@@ -2076,6 +2080,9 @@ class SubtitleOverlay(ResizableWindow):
         self.root = tk.Tk()
         self.root.title("Subtitle Overlay")
         self.go_back = False
+        self.sd_stream = None
+        self.push_stream = None
+        self.speech_recognizer = None
 
         # 창 설정
         self.root.overrideredirect(True)
@@ -2593,34 +2600,41 @@ class SubtitleOverlay(ResizableWindow):
 
             # 마이크 선택
             audio_config = None
-            if selected_mic_id is not None and SD_AVAILABLE:
-                # 선택된 마이크로 PushAudioInputStream 생성
-                audio_format = speechsdk.audio.AudioStreamFormat(
-                    samples_per_second=16000, bits_per_sample=16, channels=1
-                )
-                self.push_stream = speechsdk.audio.PushAudioInputStream(audio_format)
-                audio_config = speechsdk.audio.AudioConfig(stream=self.push_stream)
+            mic_id = selected_mic_id  # 로컬 복사 (스레드 안전)
+            if mic_id is not None and SD_AVAILABLE:
+                try:
+                    # 선택된 마이크로 PushAudioInputStream 생성
+                    audio_format = speechsdk.audio.AudioStreamFormat(
+                        samples_per_second=16000, bits_per_sample=16, channels=1
+                    )
+                    self.push_stream = speechsdk.audio.PushAudioInputStream(audio_format)
+                    audio_config = speechsdk.audio.AudioConfig(stream=self.push_stream)
 
-                push_ref = self.push_stream
+                    push_ref = self.push_stream
 
-                def audio_callback(indata, frames, time_info, status):
-                    if push_ref:
-                        push_ref.write(indata.tobytes())
+                    def audio_callback(indata, frames, time_info, status):
+                        if push_ref:
+                            push_ref.write(indata.tobytes())
 
-                self.sd_stream = sd.InputStream(
-                    device=selected_mic_id,
-                    samplerate=16000, channels=1, dtype='int16',
-                    blocksize=3200,
-                    callback=audio_callback
-                )
-                self.sd_stream.start()
+                    self.sd_stream = sd.InputStream(
+                        device=mic_id,
+                        samplerate=16000, channels=1, dtype='int16',
+                        blocksize=3200,
+                        callback=audio_callback
+                    )
+                    self.sd_stream.start()
 
-                mic_name = "?"
-                for m in get_microphone_list():
-                    if m['id'] == selected_mic_id:
-                        mic_name = m['name']
-                        break
-                print(f"[MIC] Using: {mic_name} (id={selected_mic_id})")
+                    mic_name = "?"
+                    for m in get_microphone_list():
+                        if m['id'] == mic_id:
+                            mic_name = m['name']
+                            break
+                    print(f"[MIC] Using: {mic_name} (id={mic_id})")
+                except Exception as mic_err:
+                    print(f"[MIC] Failed to open device {mic_id}: {mic_err}")
+                    print("[MIC] Falling back to System Default")
+                    self._stop_mic_stream()
+                    audio_config = None
             else:
                 self.push_stream = None
                 self.sd_stream = None
@@ -3334,10 +3348,102 @@ Format:
 # ========================
 # 6. 메인 실행
 # ========================
+def startup_diagnostics():
+    """빌드 전/실행 시 환경 점검"""
+    print("-" * 60)
+    print("[DIAGNOSTICS] Checking environment...")
+    errors = []
+    warnings = []
+
+    # 1. .env 및 API 키 확인
+    if not os.path.exists('.env') and not os.environ.get('OPENAI_API_KEY'):
+        errors.append(".env file not found and OPENAI_API_KEY not set")
+    if not SPEECH_KEY or SPEECH_KEY == 'your-key-here':
+        errors.append("SPEECH_KEY is missing or placeholder")
+    if not SPEECH_REGION:
+        errors.append("SPEECH_REGION is missing")
+    api_key = os.environ.get('OPENAI_API_KEY', '')
+    if not api_key or api_key.startswith('your-'):
+        errors.append("OPENAI_API_KEY is missing or placeholder")
+    else:
+        print(f"  [OK] OpenAI API Key: ...{api_key[-8:]}")
+
+    print(f"  [OK] Speech Region: {SPEECH_REGION}")
+
+    # 2. 필수 패키지 확인
+    required = {
+        'azure.cognitiveservices.speech': 'azure-cognitiveservices-speech',
+        'openai': 'openai',
+        'flask': 'flask',
+        'flask_socketio': 'flask-socketio',
+        'qrcode': 'qrcode',
+    }
+    optional = {
+        'sounddevice': 'sounddevice (mic selection)',
+        'pyngrok': 'pyngrok (external access)',
+    }
+
+    for mod, name in required.items():
+        try:
+            __import__(mod)
+            print(f"  [OK] {name}")
+        except ImportError:
+            errors.append(f"Missing required package: {name}")
+
+    for mod, name in optional.items():
+        try:
+            __import__(mod)
+            print(f"  [OK] {name}")
+        except ImportError:
+            warnings.append(f"Missing optional package: {name}")
+
+    # 3. 마이크 장치 확인
+    mics = get_microphone_list()
+    print(f"  [OK] Audio input devices: {len(mics) - 1} found")  # -1 for System Default
+    for m in mics:
+        if m['id'] is not None:
+            print(f"       - [{m['id']}] {m['name']}")
+
+    # 4. ngrok 토큰 확인
+    ngrok_token = os.environ.get('NGROK_AUTH_TOKEN', '')
+    if ngrok_token:
+        print(f"  [OK] ngrok auth token: ...{ngrok_token[-6:]}")
+    else:
+        warnings.append("NGROK_AUTH_TOKEN not set (external access disabled)")
+
+    # 5. 웹 서버 모듈 확인
+    if WEB_SERVER_SUPPORT:
+        print("  [OK] Web server module loaded")
+    else:
+        warnings.append("Web server module not available")
+
+    # 결과 출력
+    if warnings:
+        print()
+        for w in warnings:
+            print(f"  [WARN] {w}")
+    if errors:
+        print()
+        for e in errors:
+            print(f"  [ERROR] {e}")
+        print("-" * 60)
+        print("[DIAGNOSTICS] FAILED - fix errors above before building")
+        return False
+
+    print("-" * 60)
+    print("[DIAGNOSTICS] ALL CHECKS PASSED")
+    return True
+
+
 def main():
     print("=" * 60)
     print("⬢ LECTURE LENS")
     print("=" * 60)
+
+    # 환경 점검
+    if not startup_diagnostics():
+        input("\nPress Enter to exit...")
+        return
 
     # 다크모드 기본 적용
     set_theme(is_dark_mode)

@@ -12,9 +12,25 @@ import os
 from flask import Flask, render_template, jsonify
 from flask_socketio import SocketIO, emit
 
-# .env 로드
+# PyInstaller frozen exe에서 subprocess 핸들 상속 오류 회피
+import sys
+import subprocess
+if getattr(sys, 'frozen', False):
+    _orig_make_inheritable = subprocess.Popen._make_inheritable
+    def _safe_make_inheritable(self, handle):
+        try:
+            return _orig_make_inheritable(self, handle)
+        except OSError:
+            return handle
+    subprocess.Popen._make_inheritable = _safe_make_inheritable
+
+# .env 로드 (exe 빌드 시 _internal 폴더 기준)
 from dotenv import load_dotenv
-load_dotenv()
+if getattr(sys, 'frozen', False):
+    _base_dir = sys._MEIPASS
+else:
+    _base_dir = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(_base_dir, '.env'))
 
 # ngrok 지원
 try:
@@ -141,13 +157,20 @@ class WebServer:
 
         # ngrok 터널 시작
         if NGROK_AVAILABLE:
+            import time
+            print("[WebServer] Waiting for server ready...")
+            time.sleep(2)
             try:
+                print("[WebServer] Starting ngrok tunnel...")
                 self.ngrok_tunnel = pyngrok.connect(self.port, "http")
                 self.public_url = self.ngrok_tunnel.public_url
                 self.server_url = self.public_url
+                self.qr_code_base64 = generate_qr_code(self.server_url)
                 print(f"[WebServer] ngrok tunnel: {self.public_url}")
             except Exception as e:
+                import traceback
                 print(f"[WebServer] ngrok failed, using local: {e}")
+                traceback.print_exc()
                 self.public_url = None
 
         # QR 코드 생성
@@ -156,7 +179,7 @@ class WebServer:
 
     def stop(self):
         """서버 중지"""
-        if self.ngrok_tunnel:
+        if self.ngrok_tunnel and NGROK_AVAILABLE:
             try:
                 pyngrok.disconnect(self.ngrok_tunnel.public_url)
             except Exception:
