@@ -23,15 +23,7 @@
             </div>
         </div>
 
-        <!-- 자막 표시 영역 -->
-        <section class="subtitle-section">
-            <div class="subtitle-container">
-                <div class="subtitle-history" id="subtitleHistory"></div>
-                <div class="subtitle-realtime" id="subtitleRealtime"></div>
-            </div>
-        </section>
-
-        <!-- 하단 바: TTS -->
+        <!-- TTS 바: 언어 선택 바로 아래 -->
         <div class="bottom-bar">
             <div class="tts-toggle">
                 <label class="switch">
@@ -61,6 +53,14 @@
                 </svg>
             </button>
         </div>
+
+        <!-- 자막 표시 영역 -->
+        <section class="subtitle-section">
+            <div class="subtitle-container">
+                <div class="subtitle-history" id="subtitleHistory"></div>
+                <div class="subtitle-realtime" id="subtitleRealtime"></div>
+            </div>
+        </section>
     </div>
 
     <script src="{{ url_for('static', filename='audience.js') }}"></script>

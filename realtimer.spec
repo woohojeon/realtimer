@@ -17,6 +17,7 @@ datas = [
     ('static', 'static'),
     ('logo.png', '.'),
     ('.env', '.'),
+    ('glossary.json', '.'),
 ]
 
 # ========================
@@ -29,7 +30,10 @@ azure_speech_dir = os.path.join(USER_SITE, 'azure', 'cognitiveservices', 'speech
 if os.path.isdir(azure_speech_dir):
     for f in os.listdir(azure_speech_dir):
         if f.endswith('.dll'):
-            binaries.append((os.path.join(azure_speech_dir, f), 'azure/cognitiveservices/speech'))
+            full = os.path.join(azure_speech_dir, f)
+            binaries.append((full, 'azure/cognitiveservices/speech'))
+            # Also copy to root so ctypes can always find dependencies
+            binaries.append((full, '.'))
 
 # sounddevice PortAudio DLLs
 portaudio_dir = os.path.join(USER_SITE, '_sounddevice_data', 'portaudio-binaries')
@@ -140,7 +144,7 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['runtime_hook.py'],
     excludes=excludes,
     noarchive=False,
 )

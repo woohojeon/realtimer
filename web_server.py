@@ -12,17 +12,11 @@ import os
 from flask import Flask, render_template, jsonify
 from flask_socketio import SocketIO, emit
 
-# PyInstaller frozen exe에서 subprocess 핸들 상속 오류 회피
+# PyInstaller frozen exe 감지
 import sys
 import subprocess
-if getattr(sys, 'frozen', False):
-    _orig_make_inheritable = subprocess.Popen._make_inheritable
-    def _safe_make_inheritable(self, handle):
-        try:
-            return _orig_make_inheritable(self, handle)
-        except OSError:
-            return handle
-    subprocess.Popen._make_inheritable = _safe_make_inheritable
+
+IS_FROZEN = getattr(sys, 'frozen', False)
 
 # .env 로드 (exe 빌드 시 _internal 폴더 기준)
 from dotenv import load_dotenv
@@ -155,23 +149,34 @@ class WebServer:
         self.is_running = True
         print(f"[WebServer] Local server started at {self.local_url}")
 
-        # ngrok 터널 시작
+        # ngrok 터널 시작 (별도 스레드에서 실행하여 메인 기능에 영향 없도록)
         if NGROK_AVAILABLE:
-            import time
-            print("[WebServer] Waiting for server ready...")
-            time.sleep(2)
-            try:
-                print("[WebServer] Starting ngrok tunnel...")
-                self.ngrok_tunnel = pyngrok.connect(self.port, "http")
-                self.public_url = self.ngrok_tunnel.public_url
-                self.server_url = self.public_url
-                self.qr_code_base64 = generate_qr_code(self.server_url)
-                print(f"[WebServer] ngrok tunnel: {self.public_url}")
-            except Exception as e:
-                import traceback
-                print(f"[WebServer] ngrok failed, using local: {e}")
-                traceback.print_exc()
-                self.public_url = None
+            def start_ngrok_tunnel():
+                import time
+                print("[WebServer] Waiting for server ready...")
+                time.sleep(2)
+                try:
+                    print("[WebServer] Starting ngrok tunnel...")
+                    # PyInstaller frozen 환경에서 subprocess 문제 회피
+                    if IS_FROZEN:
+                        import os
+                        os.environ['PYTHONIOENCODING'] = 'utf-8'
+                    self.ngrok_tunnel = pyngrok.connect(self.port, "http")
+                    self.public_url = self.ngrok_tunnel.public_url
+                    self.server_url = self.public_url
+                    self.qr_code_base64 = generate_qr_code(self.server_url)
+                    print(f"[WebServer] ngrok tunnel: {self.public_url}")
+                except Exception as e:
+                    import traceback
+                    print(f"[WebServer] ngrok failed, using local URL: {e}")
+                    traceback.print_exc()
+                    self.public_url = None
+                    # ngrok 실패해도 local URL로 계속 동작
+                    print(f"[WebServer] Continuing with local URL: {self.local_url}")
+
+            # 별도 스레드에서 ngrok 시작 (메인 기능 블로킹 방지)
+            ngrok_thread = threading.Thread(target=start_ngrok_tunnel, daemon=True)
+            ngrok_thread.start()
 
         # QR 코드 생성
         self.qr_code_base64 = generate_qr_code(self.server_url)

@@ -314,6 +314,7 @@ COLORS_LIGHT = {
     'bg_main': '#F7F8FC',
     'bg_white': '#FFFFFF',
     'bg_card': '#FFFFFF',
+    'bg_btn': '#FEFEFE',  # 버튼용 (bg_card와 거의 동일, 투명 처리 안됨)
     'bg_input': '#F0F1F5',
     'primary': '#7C5CFC',
     'primary_hover': '#6B4FE0',
@@ -332,6 +333,7 @@ COLORS_DARK = {
     'bg_main': '#1a1a2e',
     'bg_white': '#16213e',
     'bg_card': '#1f2940',
+    'bg_btn': '#1f2941',  # 버튼용 (bg_card와 거의 동일, 투명 처리 안됨)
     'bg_input': '#2a3a5a',
     'primary': '#7C5CFC',
     'primary_hover': '#9B7DFF',
@@ -2211,47 +2213,15 @@ class SubtitleOverlay(ResizableWindow):
         self.status_label.pack(side="left", padx=15, pady=8)
 
         # 오른쪽 버튼들
-        btn_container = tk.Frame(control_frame, bg=COLORS['bg_card'])
-        btn_container.pack(side="right", padx=10, pady=8)
-
-        # QR 코드 버튼 (웹 서버 지원 시)
-        if WEB_SERVER_SUPPORT:
-            self.qr_btn = tk.Label(
-                btn_container,
-                text="QR",
-                font=("Segoe UI", 9, "bold"),
-                fg=COLORS['secondary'],
-                bg=COLORS['bg_card'],
-                cursor="hand2",
-                padx=8
-            )
-            self.qr_btn.pack(side="left", padx=3)
-            self.qr_btn.bind("<Button-1>", lambda e: self.show_qr_popup())
-            self.qr_btn.bind("<Enter>", lambda e: self.qr_btn.config(fg=COLORS['primary']))
-            self.qr_btn.bind("<Leave>", lambda e: self.qr_btn.config(fg=COLORS['secondary']))
-
-            # 접속자 수 표시
-            self.client_count_label = tk.Label(
-                btn_container,
-                text="0",
-                font=("Segoe UI", 8),
-                fg=COLORS['text_dim'],
-                bg=COLORS['bg_card'],
-                padx=2
-            )
-            self.client_count_label.pack(side="left", padx=(0, 5))
+        btn_container = tk.Frame(control_frame, bg=COLORS['bg_btn'])
+        btn_container.pack(side="right", padx=10, pady=4)
 
         # 자막 위치 토글 버튼 (3/4 배치)
         self.spacer_btn = tk.Label(
-            btn_container,
-            text="▲",
-            font=("Segoe UI", 10),
-            fg=COLORS['text_dim'],
-            bg=COLORS['bg_card'],
-            cursor="hand2",
-            padx=8
+            btn_container, text="▲", font=("Segoe UI", 10),
+            fg=COLORS['text_dim'], bg=COLORS['bg_btn'], cursor="hand2", padx=10, pady=8
         )
-        self.spacer_btn.pack(side="left", padx=3)
+        self.spacer_btn.pack(side="left", padx=1)
         self.spacer_btn.bind("<Button-1>", lambda e: self._toggle_spacer())
         self.spacer_btn.bind("<Enter>", lambda e: self.spacer_btn.config(fg=COLORS['primary']))
         self.spacer_btn.bind("<Leave>", lambda e: self.spacer_btn.config(
@@ -2262,13 +2232,8 @@ class SubtitleOverlay(ResizableWindow):
         self.subtitle_font_size = 14
 
         font_down_btn = tk.Label(
-            btn_container,
-            text="A-",
-            font=("Segoe UI", 9),
-            fg=COLORS['text_dim'],
-            bg=COLORS['bg_card'],
-            cursor="hand2",
-            padx=4
+            btn_container, text="A-", font=("Segoe UI", 9),
+            fg=COLORS['text_dim'], bg=COLORS['bg_btn'], cursor="hand2", padx=8, pady=8
         )
         font_down_btn.pack(side="left", padx=1)
         font_down_btn.bind("<Button-1>", lambda e: self._change_font_size(-2))
@@ -2276,116 +2241,62 @@ class SubtitleOverlay(ResizableWindow):
         font_down_btn.bind("<Leave>", lambda e: font_down_btn.config(fg=COLORS['text_dim']))
 
         self.font_size_label = tk.Label(
-            btn_container,
-            text="14",
-            font=("Segoe UI", 8),
-            fg=COLORS['text_secondary'],
-            bg=COLORS['bg_card'],
-            padx=2
+            btn_container, text="14", font=("Segoe UI", 8),
+            fg=COLORS['text_secondary'], bg=COLORS['bg_btn'], padx=2, pady=8
         )
         self.font_size_label.pack(side="left")
 
         font_up_btn = tk.Label(
-            btn_container,
-            text="A+",
-            font=("Segoe UI", 9),
-            fg=COLORS['text_dim'],
-            bg=COLORS['bg_card'],
-            cursor="hand2",
-            padx=4
+            btn_container, text="A+", font=("Segoe UI", 9),
+            fg=COLORS['text_dim'], bg=COLORS['bg_btn'], cursor="hand2", padx=8, pady=8
         )
-        font_up_btn.pack(side="left", padx=(1, 8))
+        font_up_btn.pack(side="left", padx=1)
         font_up_btn.bind("<Button-1>", lambda e: self._change_font_size(2))
         font_up_btn.bind("<Enter>", lambda e: font_up_btn.config(fg=COLORS['primary']))
         font_up_btn.bind("<Leave>", lambda e: font_up_btn.config(fg=COLORS['text_dim']))
 
         # 다크모드 토글 버튼
         self.dark_btn = tk.Label(
-            btn_container,
-            text="Dark" if not is_dark_mode else "White",
-            font=("Segoe UI", 9),
-            fg=COLORS['text_dim'],
-            bg=COLORS['bg_card'],
-            cursor="hand2",
-            padx=8
+            btn_container, text="Dark" if not is_dark_mode else "White", font=("Segoe UI", 9),
+            fg=COLORS['text_dim'], bg=COLORS['bg_btn'], cursor="hand2", padx=10, pady=8
         )
-        self.dark_btn.pack(side="left", padx=3)
+        self.dark_btn.pack(side="left", padx=1)
         self.dark_btn.bind("<Button-1>", lambda e: self.toggle_dark_mode())
         self.dark_btn.bind("<Enter>", lambda e: self.dark_btn.config(fg=COLORS['primary']))
         self.dark_btn.bind("<Leave>", lambda e: self.dark_btn.config(fg=COLORS['text_dim']))
 
         # 번역 일시정지/재개 버튼
         self.pause_btn = tk.Label(
-            btn_container,
-            text="Pause",
-            font=("Segoe UI", 9, "bold"),
-            fg=COLORS['accent_mint'],
-            bg=COLORS['bg_card'],
-            cursor="hand2",
-            padx=8
+            btn_container, text="Pause", font=("Segoe UI", 9),
+            fg=COLORS['text_dim'], bg=COLORS['bg_btn'], cursor="hand2", padx=10, pady=8
         )
-        self.pause_btn.pack(side="left", padx=3)
+        self.pause_btn.pack(side="left", padx=1)
         self.pause_btn.bind("<Button-1>", lambda e: self.toggle_pause())
-        self.pause_btn.bind("<Enter>", lambda e: self.pause_btn.config(
-            fg=COLORS['danger'] if is_listening else COLORS['success']))
-        self.pause_btn.bind("<Leave>", lambda e: self._update_pause_btn_style())
+        self.pause_btn.bind("<Enter>", lambda e: self.pause_btn.config(fg=COLORS['primary']))
+        self.pause_btn.bind("<Leave>", lambda e: self.pause_btn.config(fg=COLORS['text_dim']))
 
-        # Settings 바로가기 버튼
-        self.go_settings_btn = tk.Label(
-            btn_container,
-            text="Settings",
-            font=("Segoe UI", 9),
-            fg=COLORS['text_dim'],
-            bg=COLORS['bg_card'],
-            cursor="hand2",
-            padx=8
-        )
-        self.go_settings_btn.pack(side="left", padx=3)
-        self.go_settings_btn.bind("<Button-1>", lambda e: self._go_settings_direct())
-        self.go_settings_btn.bind("<Enter>", lambda e: self.go_settings_btn.config(fg=COLORS['primary']))
-        self.go_settings_btn.bind("<Leave>", lambda e: self.go_settings_btn.config(fg=COLORS['text_dim']))
-
-        # 세션 종료 & 저장 버튼
-        self.settings_btn = tk.Label(
-            btn_container,
-            text="Save .txt",
-            font=("Segoe UI", 9, "bold"),
-            fg=COLORS['accent_mint'],
-            bg=COLORS['bg_card'],
-            cursor="hand2",
-            padx=8
-        )
-        self.settings_btn.pack(side="left", padx=3)
-        self.settings_btn.bind("<Button-1>", lambda e: self.back_to_settings())
-        self.settings_btn.bind("<Enter>", lambda e: self.settings_btn.config(fg=COLORS['primary']))
-        self.settings_btn.bind("<Leave>", lambda e: self.settings_btn.config(fg=COLORS['accent_mint']))
-
-        # 최소화 버튼
+        # 최소화 버튼 (고정 크기 프레임, Label이 전체 채움)
+        minimize_frame = tk.Frame(btn_container, width=32, height=32, bg=COLORS['bg_btn'])
+        minimize_frame.pack(side="left", padx=1)
+        minimize_frame.pack_propagate(False)
         self.minimize_btn = tk.Label(
-            btn_container,
-            text="─",
-            font=("Segoe UI", 10),
-            fg=COLORS['text_dim'],
-            bg=COLORS['bg_card'],
-            cursor="hand2",
-            padx=8
+            minimize_frame, text="─", font=("Segoe UI", 12),
+            fg=COLORS['text_dim'], bg=COLORS['bg_btn'], cursor="hand2"
         )
-        self.minimize_btn.pack(side="left", padx=3)
+        self.minimize_btn.pack(fill="both", expand=True)
         self.minimize_btn.bind("<Button-1>", lambda e: self._minimize_window())
         self.minimize_btn.bind("<Enter>", lambda e: self.minimize_btn.config(fg=COLORS['primary']))
         self.minimize_btn.bind("<Leave>", lambda e: self.minimize_btn.config(fg=COLORS['text_dim']))
 
-        # 종료 버튼
+        # 종료 버튼 (고정 크기 프레임, Label이 전체 채움)
+        close_frame = tk.Frame(btn_container, width=32, height=32, bg=COLORS['bg_btn'])
+        close_frame.pack(side="left", padx=1)
+        close_frame.pack_propagate(False)
         self.close_btn = tk.Label(
-            btn_container,
-            text="✕",
-            font=("Segoe UI", 11),
-            fg=COLORS['text_dim'],
-            bg=COLORS['bg_card'],
-            cursor="hand2",
-            padx=8
+            close_frame, text="✕", font=("Segoe UI", 12),
+            fg=COLORS['text_dim'], bg=COLORS['bg_btn'], cursor="hand2"
         )
-        self.close_btn.pack(side="left", padx=3)
+        self.close_btn.pack(fill="both", expand=True)
         self.close_btn.bind("<Button-1>", lambda e: self.quit_app())
         self.close_btn.bind("<Enter>", lambda e: self.close_btn.config(fg=COLORS['danger']))
         self.close_btn.bind("<Leave>", lambda e: self.close_btn.config(fg=COLORS['text_dim']))
@@ -2395,14 +2306,15 @@ class SubtitleOverlay(ResizableWindow):
 
         # 자막 컨테이너 (여러 언어 표시)
         subtitle_container = tk.Frame(main_frame, bg=COLORS['bg_card'])
-        subtitle_container.pack(expand=True, fill="both", padx=20, pady=(0, 10))
+        subtitle_container.pack(expand=True, fill="both", padx=20, pady=(0, 46))
 
         # 하단 여백 (토글용, 초기 숨김)
         self._bottom_spacer = tk.Frame(main_frame, bg=COLORS['bg_card'])
         self._spacer_visible = False
 
-        # 각 타겟 언어별 스크롤 가능한 자막 영역 생성
-        self.subtitle_texts = {}    # lang_code -> Text widget (누적 표시용)
+        # 각 타겟 언어별 확정 자막 영역 생성
+        self.subtitle_texts = {}    # lang_code -> Text widget (확정 자막 누적용)
+        self.realtime_texts = {}    # lang_code -> Text widget (실시간 자막, 별도 창)
         self.subtitle_labels = {}   # lang_code -> Label (호환성 래퍼)
         self._realtime_tags = {}    # lang_code -> 실시간 번역 태그 추적
 
@@ -2412,7 +2324,7 @@ class SubtitleOverlay(ResizableWindow):
             row_frame = tk.Frame(subtitle_container, bg=COLORS['bg_card'])
             row_frame.pack(fill="both", expand=True, pady=2)
 
-            # 자막 Text 위젯 (누적 표시)
+            # 확정 자막 Text 위젯 (스크롤 가능)
             subtitle_text = tk.Text(
                 row_frame,
                 font=("Segoe UI", 14),
@@ -2425,12 +2337,8 @@ class SubtitleOverlay(ResizableWindow):
                 cursor="arrow",
                 height=3
             )
-            subtitle_text.pack(side="left", fill="both", expand=True)
-
-            # 태그 설정
+            subtitle_text.pack(fill="both", expand=True)
             subtitle_text.tag_configure("final", foreground=COLORS['text_primary'])
-            subtitle_text.tag_configure("realtime", foreground=COLORS['text_primary'])
-            subtitle_text.tag_configure("dim", foreground=COLORS['text_dim'])
 
             self.subtitle_texts[lang_code] = subtitle_text
             self._realtime_tags[lang_code] = False
@@ -2479,12 +2387,12 @@ class SubtitleOverlay(ResizableWindow):
         self.setup_resizable(min_width=50, min_height=50)
 
         # 배경 투명도 버튼 (우측 하단)
-        opacity_frame = tk.Frame(main_frame, bg=COLORS['bg_card'])
-        opacity_frame.place(relx=1.0, rely=1.0, anchor="se", x=-8, y=-4)
+        opacity_frame = tk.Frame(main_frame, bg=COLORS['bg_btn'])
+        opacity_frame.place(relx=1.0, rely=1.0, anchor="se", x=-8, y=-2)
 
         opacity_down_btn = tk.Label(
             opacity_frame, text="BG-", font=("Segoe UI", 9),
-            fg=COLORS['text_dim'], bg=COLORS['bg_card'], cursor="hand2", padx=4
+            fg=COLORS['text_dim'], bg=COLORS['bg_btn'], cursor="hand2", padx=8, pady=8
         )
         opacity_down_btn.pack(side="left", padx=1)
         opacity_down_btn.bind("<Button-1>", lambda e: self._change_opacity(-0.1))
@@ -2493,18 +2401,135 @@ class SubtitleOverlay(ResizableWindow):
 
         self._opacity_label = tk.Label(
             opacity_frame, text="95%", font=("Segoe UI", 8),
-            fg=COLORS['text_secondary'], bg=COLORS['bg_card'], padx=2
+            fg=COLORS['text_secondary'], bg=COLORS['bg_btn'], padx=2, pady=8
         )
         self._opacity_label.pack(side="left")
 
         opacity_up_btn = tk.Label(
             opacity_frame, text="BG+", font=("Segoe UI", 9),
-            fg=COLORS['text_dim'], bg=COLORS['bg_card'], cursor="hand2", padx=4
+            fg=COLORS['text_dim'], bg=COLORS['bg_btn'], cursor="hand2", padx=8, pady=8
         )
         opacity_up_btn.pack(side="left", padx=1)
         opacity_up_btn.bind("<Button-1>", lambda e: self._change_opacity(0.1))
         opacity_up_btn.bind("<Enter>", lambda e: opacity_up_btn.config(fg=COLORS['primary']))
         opacity_up_btn.bind("<Leave>", lambda e: opacity_up_btn.config(fg=COLORS['text_dim']))
+
+        # 구분선
+        sep_label = tk.Label(opacity_frame, text="|", font=("Segoe UI", 9),
+            fg=COLORS['text_dim'], bg=COLORS['bg_btn'], padx=4, pady=8)
+        sep_label.pack(side="left")
+
+        # QR 코드 버튼 (웹 서버 지원 시)
+        if WEB_SERVER_SUPPORT:
+            self.qr_btn = tk.Label(
+                opacity_frame, text="QR", font=("Segoe UI", 9),
+                fg=COLORS['text_dim'], bg=COLORS['bg_btn'], cursor="hand2", padx=8, pady=8
+            )
+            self.qr_btn.pack(side="left", padx=1)
+            self.qr_btn.bind("<Button-1>", lambda e: self.show_qr_popup())
+            self.qr_btn.bind("<Enter>", lambda e: self.qr_btn.config(fg=COLORS['primary']))
+            self.qr_btn.bind("<Leave>", lambda e: self.qr_btn.config(fg=COLORS['text_dim']))
+
+            self.client_count_label = tk.Label(
+                opacity_frame, text="0", font=("Segoe UI", 8),
+                fg=COLORS['text_dim'], bg=COLORS['bg_btn'], padx=2, pady=8
+            )
+            self.client_count_label.pack(side="left")
+
+        # Settings 바로가기 버튼
+        self.go_settings_btn = tk.Label(
+            opacity_frame, text="Settings", font=("Segoe UI", 9),
+            fg=COLORS['text_dim'], bg=COLORS['bg_btn'], cursor="hand2", padx=8, pady=8
+        )
+        self.go_settings_btn.pack(side="left", padx=1)
+        self.go_settings_btn.bind("<Button-1>", lambda e: self._go_settings_direct())
+        self.go_settings_btn.bind("<Enter>", lambda e: self.go_settings_btn.config(fg=COLORS['primary']))
+        self.go_settings_btn.bind("<Leave>", lambda e: self.go_settings_btn.config(fg=COLORS['text_dim']))
+
+        # Save .txt 버튼
+        self.settings_btn = tk.Label(
+            opacity_frame, text="Save .txt", font=("Segoe UI", 9),
+            fg=COLORS['text_dim'], bg=COLORS['bg_btn'], cursor="hand2", padx=8, pady=8
+        )
+        self.settings_btn.pack(side="left", padx=1)
+        self.settings_btn.bind("<Button-1>", lambda e: self.back_to_settings())
+        self.settings_btn.bind("<Enter>", lambda e: self.settings_btn.config(fg=COLORS['primary']))
+        self.settings_btn.bind("<Leave>", lambda e: self.settings_btn.config(fg=COLORS['text_dim']))
+
+        # 실시간 창 보이기/숨기기 토글 버튼
+        self._rt_pin_btn = tk.Label(
+            opacity_frame, text="RT", font=("Segoe UI", 9),
+            fg=COLORS['success'], bg=COLORS['bg_btn'], cursor="hand2", padx=8, pady=8
+        )
+        self._rt_pin_btn.pack(side="left", padx=1)
+        self._rt_pin_btn.bind("<Button-1>", lambda e: self._toggle_rt_pin())
+        self._rt_pin_btn.bind("<Enter>", lambda e: self._rt_pin_btn.config(
+            fg=COLORS['primary'] if not self._rt_visible else COLORS['success']
+        ))
+        self._rt_pin_btn.bind("<Leave>", lambda e: self._rt_pin_btn.config(
+            fg=COLORS['success'] if self._rt_visible else COLORS['text_dim']
+        ))
+
+        # ── 실시간 자막 별도 창 (높이 고정 + 폰트 축소) ──
+        rt_height = max(1, len(target_languages)) * 60
+        rt_x = x_pos
+        rt_y = y_pos - rt_height - 4  # 메인 창 바로 위
+
+        self._rt_window = tk.Toplevel(self.root)
+        self._rt_window.overrideredirect(True)
+        self._rt_window.attributes("-topmost", True)
+        self._rt_window.attributes("-alpha", 1.0)
+        self._rt_window.geometry(f"{self.overlay_width}x{rt_height}+{rt_x}+{rt_y}")
+        self._rt_window.configure(bg=COLORS['bg_card'])
+        self._rt_window.attributes("-transparentcolor", COLORS['bg_card'])
+
+        self._rt_bg_window = tk.Toplevel(self.root)
+        self._rt_bg_window.overrideredirect(True)
+        self._rt_bg_window.attributes("-topmost", True)
+        self._rt_bg_window.attributes("-alpha", self.bg_opacity)
+        self._rt_bg_window.geometry(f"{self.overlay_width}x{rt_height}+{rt_x}+{rt_y}")
+        self._rt_bg_window.configure(bg=COLORS['bg_card'])
+        self._rt_bg_window.lower(self._rt_window)
+
+        rt_frame = tk.Frame(self._rt_window, bg=COLORS['bg_card'])
+        rt_frame.pack(fill="both", expand=True, padx=20, pady=4)
+
+        for lang_code in target_languages:
+            rt_row = tk.Frame(rt_frame, bg=COLORS['bg_card'])
+            rt_row.pack(fill="both", expand=True, pady=1)
+
+            realtime_text = tk.Text(
+                rt_row,
+                font=("Segoe UI", 14),
+                fg=COLORS['text_secondary'],
+                bg=COLORS['bg_card'],
+                wrap="word",
+                borderwidth=0,
+                highlightthickness=0,
+                state="disabled",
+                cursor="arrow",
+                height=3
+            )
+            realtime_text.pack(fill="both", expand=True)
+            realtime_text.tag_configure("realtime", foreground=COLORS['text_secondary'])
+            realtime_text.tag_configure("dim", foreground=COLORS['text_dim'])
+
+            self.realtime_texts[lang_code] = realtime_text
+
+        # 실시간 창 표시 (항상 보임)
+        self._rt_visible = True
+        self._show_rt_waiting()
+
+        # 실시간 창 위치 동기화 + 드래그/리사이즈
+        self._rt_window.bind("<Configure>", self._sync_rt_bg_window)
+        self._rt_drag_x = 0
+        self._rt_drag_y = 0
+        self._rt_resize_edge = None
+        self._rt_resize_data = {}
+        self._rt_bg_window.bind("<Button-1>", self._rt_bg_mouse_down)
+        self._rt_bg_window.bind("<B1-Motion>", self._rt_bg_mouse_drag)
+        self._rt_bg_window.bind("<ButtonRelease-1>", self._rt_bg_mouse_up)
+        self._rt_bg_window.bind("<Motion>", self._rt_bg_mouse_move)
 
         # 배경 윈도우 위치 동기화
         self.root.bind("<Configure>", self._sync_bg_window)
@@ -2990,17 +3015,10 @@ Text: {source_text}"""
         """번역 일시정지/재개 토글"""
         if is_listening:
             self.stop_listening()
-            self.pause_btn.config(text="Resume", fg=COLORS['success'])
+            self.pause_btn.config(text="Resume", fg=COLORS['text_dim'])
         else:
             self.start_listening()
-            self.pause_btn.config(text="Pause", fg=COLORS['accent_mint'])
-
-    def _update_pause_btn_style(self):
-        """Pause 버튼 스타일 업데이트"""
-        if is_listening:
-            self.pause_btn.config(fg=COLORS['accent_mint'])
-        else:
-            self.pause_btn.config(fg=COLORS['success'])
+            self.pause_btn.config(text="Pause", fg=COLORS['text_dim'])
 
     def start_listening(self):
         """음성 인식 시작"""
@@ -3044,6 +3062,17 @@ Text: {source_text}"""
         except:
             pass
 
+        # 실시간 창 테마 업데이트
+        try:
+            if hasattr(self, '_rt_window') and self._rt_window.winfo_exists():
+                self._rt_window.configure(bg=COLORS['bg_card'])
+                self._rt_window.attributes("-transparentcolor", COLORS['bg_card'])
+                self._apply_theme_to_widget(self._rt_window)
+            if hasattr(self, '_rt_bg_window') and self._rt_bg_window.winfo_exists():
+                self._rt_bg_window.configure(bg=COLORS['bg_card'])
+        except:
+            pass
+
         # 모든 위젯 업데이트
         self._apply_theme_to_widget(self.root)
 
@@ -3054,8 +3083,10 @@ Text: {source_text}"""
         for lang_code, tw in self.subtitle_texts.items():
             tw.config(bg=COLORS['bg_card'], fg=COLORS['text_primary'])
             tw.tag_configure("final", foreground=COLORS['text_primary'])
-            tw.tag_configure("realtime", foreground=COLORS['text_primary'])
-            tw.tag_configure("dim", foreground=COLORS['text_dim'])
+        for lang_code, rtw in self.realtime_texts.items():
+            rtw.config(bg=COLORS['bg_card'], fg=COLORS['text_secondary'])
+            rtw.tag_configure("realtime", foreground=COLORS['text_secondary'])
+            rtw.tag_configure("dim", foreground=COLORS['text_dim'])
 
     def _apply_theme_to_widget(self, widget):
         """위젯에 테마 적용 (재귀)"""
@@ -3066,8 +3097,12 @@ Text: {source_text}"""
                 color_map = {
                     COLORS_LIGHT['bg_card']: COLORS['bg_card'],
                     COLORS_DARK['bg_card']: COLORS['bg_card'],
+                    COLORS_LIGHT['bg_btn']: COLORS['bg_btn'],
+                    COLORS_DARK['bg_btn']: COLORS['bg_btn'],
                     '#FFFFFF': COLORS['bg_card'],
                     '#1f2940': COLORS['bg_card'],
+                    '#FEFEFE': COLORS['bg_btn'],
+                    '#1f2941': COLORS['bg_btn'],
                 }
 
                 if current_bg in color_map:
@@ -3114,12 +3149,40 @@ Text: {source_text}"""
 
     def _minimize_window(self):
         """overrideredirect 창 최소화 (Windows 우회)"""
+        # bg_window, 실시간 창도 숨기기
+        try:
+            if self._bg_window.winfo_exists():
+                self._bg_window.withdraw()
+        except:
+            pass
+        try:
+            if hasattr(self, '_rt_window') and self._rt_window.winfo_exists():
+                self._rt_window.withdraw()
+            if hasattr(self, '_rt_bg_window') and self._rt_bg_window.winfo_exists():
+                self._rt_bg_window.withdraw()
+        except:
+            pass
         self.root.overrideredirect(False)
         self.root.iconify()
         def _on_restore(event):
             if self.root.state() == 'normal':
                 self.root.overrideredirect(True)
                 self.root.attributes("-topmost", True)
+                # bg_window 복원
+                try:
+                    if self._bg_window.winfo_exists():
+                        self._bg_window.deiconify()
+                        self._sync_bg_window()
+                except:
+                    pass
+                # 실시간 창 복원 (내용 있을 때만)
+                if hasattr(self, '_rt_visible') and self._rt_visible:
+                    try:
+                        self._rt_window.deiconify()
+                        self._rt_bg_window.deiconify()
+                        self._sync_rt_bg_window()
+                    except:
+                        pass
                 self.root.unbind("<Map>")
         self.root.bind("<Map>", _on_restore)
 
@@ -3135,6 +3198,13 @@ Text: {source_text}"""
         try:
             if self._bg_window.winfo_exists():
                 self._bg_window.destroy()
+        except:
+            pass
+        try:
+            if hasattr(self, '_rt_window') and self._rt_window.winfo_exists():
+                self._rt_window.destroy()
+            if hasattr(self, '_rt_bg_window') and self._rt_bg_window.winfo_exists():
+                self._rt_bg_window.destroy()
         except:
             pass
         self.go_back = True
@@ -3302,6 +3372,10 @@ Format:
         x = (screen_w - width) // 2
         y = (screen_h - height) // 2
         self.modal.geometry(f"{width}x{height}+{x}+{y}")
+
+        # 맨 앞으로 가져오기
+        self.modal.lift()
+        self.modal.focus_force()
 
         # 드래그 변수
         self._modal_drag_x = 0
@@ -3471,6 +3545,13 @@ Format:
                 self._bg_window.destroy()
         except:
             pass
+        try:
+            if hasattr(self, '_rt_window') and self._rt_window.winfo_exists():
+                self._rt_window.destroy()
+            if hasattr(self, '_rt_bg_window') and self._rt_bg_window.winfo_exists():
+                self._rt_bg_window.destroy()
+        except:
+            pass
         self.go_back = False
         self.root.quit()
         self.root.destroy()
@@ -3485,6 +3566,86 @@ Format:
             self._bg_window.lower(self.root)
         except:
             pass
+
+    def _sync_rt_bg_window(self, event=None):
+        """실시간 배경 윈도우를 실시간 윈도우와 동기화"""
+        try:
+            if not self._rt_bg_window.winfo_exists():
+                return
+            geo = self._rt_window.geometry()
+            self._rt_bg_window.geometry(geo)
+            self._rt_bg_window.lower(self._rt_window)
+        except:
+            pass
+
+    # ── 실시간 창 드래그/리사이즈 핸들러 ──
+
+    def _rt_bg_get_edge(self, x, y):
+        """실시간 bg_window 가장자리 판별"""
+        w = self._rt_bg_window.winfo_width()
+        h = self._rt_bg_window.winfo_height()
+        edge = ""
+        if y < 6: edge += "n"
+        elif y > h - 6: edge += "s"
+        if x < 6: edge += "w"
+        elif x > w - 6: edge += "e"
+        return edge if edge else None
+
+    def _rt_bg_mouse_move(self, event):
+        """실시간 bg_window 마우스 이동 - 커서 변경"""
+        edge = self._rt_bg_get_edge(event.x, event.y)
+        cursor_map = {
+            "n": "top_side", "s": "bottom_side", "e": "right_side", "w": "left_side",
+            "ne": "top_right_corner", "nw": "top_left_corner",
+            "se": "bottom_right_corner", "sw": "bottom_left_corner",
+        }
+        self._rt_bg_window.config(cursor=cursor_map.get(edge, ""))
+
+    def _rt_bg_mouse_down(self, event):
+        """실시간 bg_window 클릭 - 드래그 또는 리사이즈 시작"""
+        self._rt_bg_window.lower(self._rt_window)
+        edge = self._rt_bg_get_edge(event.x, event.y)
+        if edge:
+            self._rt_resize_edge = edge
+            self._rt_resize_data = {
+                'x': event.x_root, 'y': event.y_root,
+                'w': self._rt_window.winfo_width(), 'h': self._rt_window.winfo_height(),
+                'px': self._rt_window.winfo_x(), 'py': self._rt_window.winfo_y()
+            }
+        else:
+            self._rt_resize_edge = None
+            self._rt_drag_x = event.x
+            self._rt_drag_y = event.y
+
+    def _rt_bg_mouse_drag(self, event):
+        """실시간 bg_window 드래그 - 이동 또는 리사이즈"""
+        if self._rt_resize_edge:
+            d = self._rt_resize_data
+            dx = event.x_root - d['x']
+            dy = event.y_root - d['y']
+            new_x, new_y, new_w, new_h = d['px'], d['py'], d['w'], d['h']
+            edge = self._rt_resize_edge
+            if "e" in edge: new_w = max(50, d['w'] + dx)
+            if "w" in edge:
+                new_w = max(50, d['w'] - dx)
+                if new_w > 50: new_x = d['px'] + dx
+            if "s" in edge: new_h = max(50, d['h'] + dy)
+            if "n" in edge:
+                new_h = max(50, d['h'] - dy)
+                if new_h > 50: new_y = d['py'] + dy
+            geo = f"{new_w}x{new_h}+{new_x}+{new_y}"
+            self._rt_window.geometry(geo)
+            self._rt_bg_window.geometry(geo)
+        else:
+            x = self._rt_bg_window.winfo_x() + event.x - self._rt_drag_x
+            y = self._rt_bg_window.winfo_y() + event.y - self._rt_drag_y
+            self._rt_window.geometry(f"+{x}+{y}")
+            self._rt_bg_window.geometry(f"+{x}+{y}")
+
+    def _rt_bg_mouse_up(self, event):
+        """실시간 bg_window 마우스 해제"""
+        self._rt_bg_window.lower(self._rt_window)
+        self._rt_resize_edge = None
 
     def _bg_mouse_move(self, event):
         """bg_window 마우스 이동 - 커서 변경"""
@@ -3509,6 +3670,8 @@ Format:
 
     def _bg_mouse_down(self, event):
         """bg_window 클릭 - 드래그 또는 리사이즈 시작"""
+        # bg_window가 클릭 시 앞으로 올라오지 않도록 다시 뒤로
+        self._bg_window.lower(self.root)
         edge = self._bg_get_edge(event.x, event.y)
         if edge:
             self._bg_resize_edge = edge
@@ -3549,6 +3712,8 @@ Format:
 
     def _bg_mouse_up(self, event):
         """bg_window 마우스 해제"""
+        # z-order 유지
+        self._bg_window.lower(self.root)
         self._bg_resize_edge = None
 
     def _change_opacity(self, delta):
@@ -3558,6 +3723,8 @@ Format:
             return
         self.bg_opacity = new_opacity
         self._bg_window.attributes("-alpha", new_opacity)
+        if hasattr(self, '_rt_bg_window') and self._rt_bg_window.winfo_exists():
+            self._rt_bg_window.attributes("-alpha", new_opacity)
         self._opacity_label.config(text=f"{int(new_opacity * 100)}%")
 
     def _change_font_size(self, delta):
@@ -3569,18 +3736,32 @@ Format:
         self.font_size_label.config(text=str(new_size))
         for tw in self.subtitle_texts.values():
             tw.config(font=("Segoe UI", new_size))
+        for rtw in self.realtime_texts.values():
+            rtw.config(font=("Segoe UI", new_size))
 
     def _clear_realtime(self, lang_code):
         """실시간 번역 임시 텍스트 제거"""
-        tw = self.subtitle_texts.get(lang_code)
-        if tw and self._realtime_tags.get(lang_code):
-            tw.config(state="normal")
-            try:
-                tw.delete("realtime_start", "end")
-            except tk.TclError:
-                pass
-            tw.config(state="disabled")
+        rtw = self.realtime_texts.get(lang_code)
+        if rtw and self._realtime_tags.get(lang_code):
+            rtw.config(state="normal")
+            rtw.delete("1.0", "end")
+            rtw.config(state="disabled")
             self._realtime_tags[lang_code] = False
+            # 폰트 크기 캐시 초기화
+            last_key = f'_rt_last_size_{lang_code}'
+            if hasattr(self, last_key):
+                delattr(self, last_key)
+        # 모든 실시간 태그가 꺼져있으면 대기 텍스트 표시
+        if not any(self._realtime_tags.values()):
+            self._show_rt_waiting()
+
+    def _show_rt_waiting(self):
+        """실시간 창에 대기 상태 표시 (고정 모드용)"""
+        for rtw in self.realtime_texts.values():
+            rtw.config(state="normal", font=("Segoe UI", self.subtitle_font_size))
+            rtw.delete("1.0", "end")
+            rtw.insert("1.0", "...", "dim")
+            rtw.config(state="disabled")
 
     def _center_scroll(self, tw):
         """최신 자막을 화면 정중앙에 위치시킴"""
@@ -3591,19 +3772,88 @@ Format:
         target = max(0.0, 1.0 - visible / 2)
         tw.yview_moveto(target)
 
-    def _append_realtime(self, lang_code, text):
-        """실시간 번역 임시 텍스트 표시 (기존 확정 텍스트 뒤에)"""
-        tw = self.subtitle_texts.get(lang_code)
-        if not tw:
+    def _show_rt_window(self):
+        """실시간 자막 창 표시"""
+        if not self._rt_visible:
+            self._rt_visible = True
+            self._rt_window.deiconify()
+            self._rt_bg_window.deiconify()
+            self._sync_rt_bg_window()
+            self._rt_window.lift()
+            self._rt_bg_window.lower(self._rt_window)
+
+    def _toggle_rt_pin(self):
+        """실시간 창 보이기/숨기기 토글"""
+        if self._rt_visible:
+            self._rt_visible = False
+            self._rt_window.withdraw()
+            self._rt_bg_window.withdraw()
+            self._rt_pin_btn.config(fg=COLORS['text_dim'])
+        else:
+            self._rt_visible = True
+            self._rt_window.deiconify()
+            self._rt_bg_window.deiconify()
+            self._sync_rt_bg_window()
+            self._rt_window.lift()
+            self._rt_bg_window.lower(self._rt_window)
+            self._rt_pin_btn.config(fg=COLORS['success'])
+            if not any(self._realtime_tags.values()):
+                self._show_rt_waiting()
+
+    def _set_realtime_text(self, lang_code, text, tag="realtime"):
+        """실시간 텍스트를 고정 영역 안에 맞추어 폰트 축소 (모바일 방식)"""
+        rtw = self.realtime_texts.get(lang_code)
+        if not rtw:
             return
-        self._clear_realtime(lang_code)
-        tw.config(state="normal")
-        tw.mark_set("realtime_start", "end-1c")
-        tw.mark_gravity("realtime_start", "left")
-        tw.insert("end", "\n" + text if tw.get("1.0", "end").strip() else text, "realtime")
-        self._center_scroll(tw)
-        tw.config(state="disabled")
+        self._show_rt_window()
+        rtw.config(state="normal")
+
+        # 이전에 축소된 크기가 있으면 그 크기부터 시작 (깜빡임 방지)
+        last_key = f'_rt_last_size_{lang_code}'
+        last_size = getattr(self, last_key, self.subtitle_font_size)
+        # 기본 크기가 바뀌었으면 기본 크기부터
+        size = min(self.subtitle_font_size, last_size)
+        min_size = 8
+
+        # 먼저 이전 크기로 시도
+        rtw.config(font=("Segoe UI", size))
+        rtw.delete("1.0", "end")
+        rtw.insert("1.0", text, tag)
+        rtw.update_idletasks()
+
+        if rtw.bbox("end-1c") is None:
+            # 넘치면 더 줄이기
+            size -= 1
+            while size >= min_size:
+                rtw.config(font=("Segoe UI", size))
+                rtw.delete("1.0", "end")
+                rtw.insert("1.0", text, tag)
+                rtw.update_idletasks()
+                if rtw.bbox("end-1c") is not None:
+                    break
+                size -= 1
+        elif size < self.subtitle_font_size:
+            # 여유 있으면 키워보기
+            while size < self.subtitle_font_size:
+                size += 1
+                rtw.config(font=("Segoe UI", size))
+                rtw.delete("1.0", "end")
+                rtw.insert("1.0", text, tag)
+                rtw.update_idletasks()
+                if rtw.bbox("end-1c") is None:
+                    size -= 1
+                    rtw.config(font=("Segoe UI", size))
+                    rtw.delete("1.0", "end")
+                    rtw.insert("1.0", text, tag)
+                    break
+
+        setattr(self, last_key, size)
+        rtw.config(state="disabled")
         self._realtime_tags[lang_code] = True
+
+    def _append_realtime(self, lang_code, text):
+        """실시간 번역 임시 텍스트 표시 (별도 영역, 높이 제한+폰트 축소)"""
+        self._set_realtime_text(lang_code, text, "realtime")
 
     def _append_final(self, lang_code, text):
         """확정 번역을 누적 추가 (문장 사이 빈 줄)"""
@@ -3621,17 +3871,7 @@ Format:
 
     def _show_dim(self, lang_code, text):
         """번역 중 등 임시 메시지 표시"""
-        tw = self.subtitle_texts.get(lang_code)
-        if not tw:
-            return
-        self._clear_realtime(lang_code)
-        tw.config(state="normal")
-        tw.mark_set("realtime_start", "end-1c")
-        tw.mark_gravity("realtime_start", "left")
-        tw.insert("end", "\n" + text if tw.get("1.0", "end").strip() else text, "dim")
-        self._center_scroll(tw)
-        tw.config(state="disabled")
-        self._realtime_tags[lang_code] = True
+        self._set_realtime_text(lang_code, text, "dim")
 
     def check_queue(self):
         """큐 확인 및 자막 업데이트 (다국어 지원, 누적 표시)"""

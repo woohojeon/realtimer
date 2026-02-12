@@ -69,7 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Theme Management
 // ========================
 function initTheme() {
-    const savedTheme = localStorage.getItem('theme') || 'light';
+    const savedTheme = localStorage.getItem('theme') || 'dark';
     document.documentElement.setAttribute('data-theme', savedTheme);
 }
 
@@ -318,18 +318,12 @@ function initEventListeners() {
         btnSpeak.disabled = true;
     });
 
-    // TTS toggle
+    // TTS toggle - 매 세션마다 꺼진 상태로 시작, 사용자가 직접 켜야 함
+    ttsToggle.checked = false;
+    isTTSEnabled = false;
     ttsToggle.addEventListener('change', (e) => {
         isTTSEnabled = e.target.checked;
-        localStorage.setItem('ttsEnabled', isTTSEnabled);
     });
-
-    // Restore TTS setting
-    const savedTTS = localStorage.getItem('ttsEnabled');
-    if (savedTTS === 'true') {
-        ttsToggle.checked = true;
-        isTTSEnabled = true;
-    }
 
     // TTS speed
     ttsSpeedInput.addEventListener('input', (e) => {
