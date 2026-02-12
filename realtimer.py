@@ -3763,14 +3763,46 @@ Format:
             rtw.insert("1.0", "...", "dim")
             rtw.config(state="disabled")
 
-    def _center_scroll(self, tw):
-        """최신 자막을 화면 정중앙에 위치시킴"""
-        tw.see("end")
+    def _center_scroll(self, tw, new_text_len=0):
+        """새 자막 스크롤 처리. 긴 텍스트는 최상단부터 보여주고 2초 후 스크롤"""
         tw.update_idletasks()
-        start, end = tw.yview()
-        visible = end - start
-        target = max(0.0, 1.0 - visible / 2)
-        tw.yview_moveto(target)
+
+        if new_text_len > 50:
+            # 긴 텍스트 → 새 자막 시작을 최상단에 배치
+            content = tw.get("1.0", "end")
+            last_sep = content.rfind("\n\n")
+            if last_sep >= 0:
+                char_offset = last_sep + 2
+                start_index = f"1.0+{char_offset}c"
+            else:
+                start_index = "1.0"
+
+            tw.yview(start_index)
+            tw.update_idletasks()
+
+            # 끝이 안 보이면 2초 후 스크롤
+            s, e = tw.yview()
+            if e < 1.0:
+                self._scroll_seq = getattr(self, '_scroll_seq', 0) + 1
+                seq = self._scroll_seq
+                self.root.after(2000, lambda: self._auto_scroll_tick(tw, seq))
+        else:
+            # 짧은 텍스트 → 끝 보여주기
+            tw.see("end")
+
+    def _auto_scroll_tick(self, tw, seq):
+        """스크롤 애니메이션 틱 (새 자막이 들어오면 seq 변경으로 이전 애니메이션 중단)"""
+        if seq != self._scroll_seq:
+            return
+        try:
+            s, e = tw.yview()
+            if e >= 1.0:
+                return
+            step = max(0.005, (e - s) * 0.05)
+            tw.yview_moveto(s + step)
+            self.root.after(50, lambda: self._auto_scroll_tick(tw, seq))
+        except Exception:
+            pass
 
     def _show_rt_window(self):
         """실시간 자막 창 표시"""
@@ -3856,7 +3888,7 @@ Format:
         self._set_realtime_text(lang_code, text, "realtime")
 
     def _append_final(self, lang_code, text):
-        """확정 번역을 누적 추가 (문장 사이 빈 줄)"""
+        """확정 번역을 누적 추가 (긴 자막은 최상단부터 스크롤)"""
         tw = self.subtitle_texts.get(lang_code)
         if not tw:
             return
@@ -3866,7 +3898,7 @@ Format:
             tw.insert("end", "\n\n" + text, "final")
         else:
             tw.insert("end", text, "final")
-        self._center_scroll(tw)
+        self._center_scroll(tw, len(text))
         tw.config(state="disabled")
 
     def _show_dim(self, lang_code, text):
