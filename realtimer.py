@@ -860,6 +860,9 @@ class SettingsWindow(ResizableWindow):
         self.pending_pdf_item = None
         self.pdf_thread = None
         self.pdf_list = []  # 추가된 PDF 목록 [(filepath, frame, label), ...]
+        self._pdf_batch_threads = []  # 배치 처리 중인 스레드 목록
+        self._pdf_batch_terms = []    # 배치 처리에서 수집된 전체 용어
+        self._pdf_batch_items = []    # 배치 처리 pdf_item 목록
 
         # 드래그 변수
         self.drag_x = 0
@@ -1314,7 +1317,7 @@ class SettingsWindow(ResizableWindow):
         self.glossary_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
     def on_pdf_drop(self, event):
-        """PDF 파일 드롭 처리 (여러 파일 지원)"""
+        """PDF 파일 드롭 처리 (여러 파일 → 배치 처리 후 한번에 모달)"""
         data = event.data
 
         # 여러 파일 파싱 (공백으로 구분, 중괄호로 감싸진 경로 처리)
@@ -1331,16 +1334,19 @@ class SettingsWindow(ResizableWindow):
         else:
             filepaths = data.split()
 
-        # PDF 파일만 필터링하여 처리
-        pdf_count = 0
-        for filepath in filepaths:
-            filepath = filepath.strip()
-            if filepath and filepath.lower().endswith('.pdf'):
-                self._process_pdf_file(filepath)
-                pdf_count += 1
+        # PDF 파일만 필터링
+        pdf_files = [fp.strip() for fp in filepaths if fp.strip() and fp.strip().lower().endswith('.pdf')]
 
-        if pdf_count == 0:
+        if not pdf_files:
             self.pdf_label.config(text="PDF files only", fg=COLORS['danger'])
+            return
+
+        # 배치 처리: 모든 PDF 스레드 시작 후 전부 완료되면 모달 1회 표시
+        self._pdf_batch_threads = []
+        self._pdf_batch_terms = []
+        self._pdf_batch_items = []
+        for filepath in pdf_files:
+            self._process_pdf_file(filepath)
 
     def on_drag_enter(self, event):
         """드래그 진입 시 하이라이트"""
@@ -1363,10 +1369,13 @@ class SettingsWindow(ResizableWindow):
             filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")]
         )
         if filepath:
+            self._pdf_batch_threads = []
+            self._pdf_batch_terms = []
+            self._pdf_batch_items = []
             self._process_pdf_file(filepath)
 
     def _process_pdf_file(self, filepath):
-        """PDF 파일 처리 시작"""
+        """PDF 파일 처리 시작 (배치 처리 지원)"""
         self.pdf_path = filepath
         filename = os.path.basename(filepath)
 
@@ -1376,10 +1385,15 @@ class SettingsWindow(ResizableWindow):
         self.pdf_drop_frame.config(highlightbackground=COLORS['text_dim'], highlightthickness=1)
         self.root.update()
 
-        # 스레드 시작 및 완료 폴링
-        self.pdf_thread = threading.Thread(target=self.process_pdf, args=(filepath, pdf_item), daemon=True)
-        self.pdf_thread.start()
-        self.root.after(200, self._poll_pdf_thread)
+        # 배치 목록에 추가
+        self._pdf_batch_items.append(pdf_item)
+        t = threading.Thread(target=self.process_pdf, args=(filepath, pdf_item), daemon=True)
+        t.start()
+        self._pdf_batch_threads.append(t)
+
+        # 첫 번째 PDF일 때만 배치 폴링 시작
+        if len(self._pdf_batch_threads) == 1:
+            self.root.after(200, self._poll_pdf_batch)
 
     def _create_pdf_item(self, filepath, filename):
         """PDF 목록 항목 생성"""
@@ -1448,51 +1462,47 @@ class SettingsWindow(ResizableWindow):
             filename = os.path.basename(filepath)
             print(f"[PDF] 1단계: 텍스트 추출 시작 - {filename}")
 
-            # 1단계: PDF 텍스트 추출 시작
-            self.root.after(0, lambda: status_label.config(
-                text="33%",
-                fg=COLORS['secondary']
-            ))
-            time.sleep(0.2)
+            # 로딩 애니메이션 시작
+            self._loading_active = True
+            def _animate_loading(dots=[0]):
+                if not self._loading_active:
+                    return
+                dots[0] = (dots[0] % 3) + 1
+                self.root.after(0, lambda: status_label.config(
+                    text="Loading" + "." * dots[0],
+                    fg=COLORS['secondary']
+                ))
+                self.root.after(500, _animate_loading)
+            self.root.after(0, _animate_loading)
 
             # PDF 텍스트 추출
             text = extract_text_from_pdf(filepath)
             print(f"[PDF] 추출된 텍스트 길이: {len(text)} 글자")
 
             if not text.strip():
+                self._loading_active = False
                 print("[PDF] 오류: 텍스트 추출 실패")
                 self.root.after(0, lambda: status_label.config(text="Failed", fg=COLORS['danger']))
                 return
 
-            # 2단계: 텍스트 추출 완료, GPT 분석 중
-            print("[PDF] 2단계: GPT 분석 시작")
-            self.root.after(0, lambda: status_label.config(
-                text="66%",
-                fg=COLORS['secondary']
-            ))
-
-            # GPT 분석 (가장 오래 걸림)
+            # GPT 분석
             terms = extract_terminology_with_gpt(text)
+            self._loading_active = False
             print(f"[PDF] GPT 분석 완료: {len(terms)}개 용어 추출")
-            print(f"[PDF] 추출된 용어: {terms}")
-
-            # 3단계: 분석 완료
-            self.root.after(0, lambda: status_label.config(
-                text="100%",
-                fg=COLORS['success']
-            ))
-            time.sleep(0.3)
 
             if not terms:
                 print("[PDF] 오류: 추출된 용어 없음")
                 self.root.after(0, lambda: status_label.config(text="No terms", fg=COLORS['danger']))
                 return
 
-            print(f"[PDF] 추출 완료: {len(terms)}개 용어 - 폴링에서 모달 표시 예정")
-            # 결과 저장 (폴링에서 모달 표시)
-            self.pending_terms = terms
-            self.pending_filepath = filepath
-            self.pending_pdf_item = pdf_item
+            count = len(terms)
+            self.root.after(0, lambda c=count: status_label.config(text=f"{c} terms", fg=COLORS['success']))
+
+            print(f"[PDF] 추출 완료: {count}개 용어 - 배치에 추가")
+            # 배치 리스트에 누적 (중복 제거)
+            for term in terms:
+                if term not in self._pdf_batch_terms:
+                    self._pdf_batch_terms.append(term)
 
         except Exception as e:
             import traceback
@@ -1500,27 +1510,28 @@ class SettingsWindow(ResizableWindow):
             traceback.print_exc()
             self.root.after(0, lambda: status_label.config(text="Error", fg=COLORS['danger']))
 
-    def _poll_pdf_thread(self):
-        """PDF 처리 스레드 완료 확인"""
-        if self.pdf_thread and self.pdf_thread.is_alive():
+    def _poll_pdf_batch(self):
+        """배치 PDF 처리 스레드 전체 완료 확인"""
+        if any(t.is_alive() for t in self._pdf_batch_threads):
             # 아직 처리 중 - 계속 폴링
-            self.root.after(200, self._poll_pdf_thread)
+            self.root.after(200, self._poll_pdf_batch)
         else:
-            # 처리 완료 - 모달 표시
-            print("[PDF] 스레드 완료, 모달 표시 시작")
-            if self.pending_terms and self.pending_filepath:
-                terms = self.pending_terms
-                filepath = self.pending_filepath
-                pdf_item = getattr(self, 'pending_pdf_item', None)
-                self.pending_terms = None
-                self.pending_filepath = None
-                self.pending_pdf_item = None
-                self.show_term_modal(terms, filepath, pdf_item)
+            # 모든 PDF 처리 완료 - 합쳐진 용어로 모달 1회 표시
+            print(f"[PDF] 배치 완료, 총 {len(self._pdf_batch_terms)}개 용어")
+            if self._pdf_batch_terms:
+                terms = list(self._pdf_batch_terms)
+                items = list(self._pdf_batch_items)
+                self._pdf_batch_terms.clear()
+                self._pdf_batch_threads.clear()
+                self._pdf_batch_items.clear()
+                self.show_term_modal(terms, None, items)
             else:
-                print("[PDF] pending 데이터 없음 (오류 또는 용어 없음)")
+                print("[PDF] 추출된 용어 없음")
+                self._pdf_batch_threads.clear()
+                self._pdf_batch_items.clear()
 
     def show_term_modal(self, terms, filepath, pdf_item=None):
-        """전문용어 선택 모달 표시"""
+        """전문용어 선택 모달 표시 (배치: pdf_item이 리스트일 수 있음)"""
         print(f"[PDF] show_term_modal 호출됨: {len(terms)}개 용어")
 
         try:
@@ -1530,19 +1541,18 @@ class SettingsWindow(ResizableWindow):
             selected = modal.show()
             print(f"[PDF] 모달 닫힘, 선택된 용어: {len(selected) if selected else 0}개")
 
-            # 상태 라벨 업데이트
-            if pdf_item:
-                item_frame, status_label, _ = pdf_item
-                if selected:
-                    for term in selected:
-                        self.add_glossary_row_with_text(term)
-                    status_label.config(text=f"+{len(selected)}", fg=COLORS['success'])
-                else:
-                    status_label.config(text="Cancelled", fg=COLORS['text_dim'])
-            else:
-                if selected:
-                    for term in selected:
-                        self.add_glossary_row_with_text(term)
+            # 용어 추가
+            if selected:
+                for term in selected:
+                    self.add_glossary_row_with_text(term)
+
+            # 상태 라벨: 취소 시만 업데이트 (각 PDF는 이미 개별 추출 수 표시중)
+            if not selected:
+                items = pdf_item if isinstance(pdf_item, list) else [pdf_item] if pdf_item else []
+                for item in items:
+                    if item:
+                        item_frame, status_label, _ = item
+                        status_label.config(text="Cancelled", fg=COLORS['text_dim'])
         except Exception as e:
             import traceback
             print(f"[PDF] 모달 오류: {e}")
@@ -1694,8 +1704,14 @@ class SettingsWindow(ResizableWindow):
             self.dropdown_popup = None
 
     def _refresh_mic_list(self):
-        """마이크 목록 새로고침"""
+        """마이크 목록 새로고침 (sounddevice 캐시 강제 갱신)"""
         global selected_mic_id
+        if SD_AVAILABLE:
+            try:
+                sd._terminate()
+                sd._initialize()
+            except Exception:
+                pass
         self.mic_list = get_microphone_list()
         # 현재 선택이 여전히 유효한지 확인
         found = False
@@ -2166,18 +2182,21 @@ class SubtitleOverlay(ResizableWindow):
         self.root.attributes("-alpha", 1.0)
 
         # 배경 투명도
-        self.bg_opacity = 0.95
+        self.bg_opacity = 1.0
 
-        # 화면 하단 위치 (언어 수에 따라 높이 조정)
+        # 화면 오른쪽, 작업표시줄 제외 전체 높이, 좁게 배치
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
-        self.overlay_width = screen_w - 200
-        # 타겟 언어 수에 따라 높이 조정 (누적 자막 표시를 위해 높이 확대)
-        base_height = 120
-        lang_height = max(1, len(target_languages)) * 80
-        self.overlay_height = base_height + lang_height
-        x_pos = 100
-        y_pos = screen_h - self.overlay_height - 60
+        # 작업표시줄 높이 계산 (실제 작업 영역과의 차이)
+        try:
+            work_h = self.root.winfo_vrootheight()
+            taskbar_h = screen_h - work_h if work_h < screen_h else 48
+        except:
+            taskbar_h = 48
+        self.overlay_width = screen_w // 4
+        self.overlay_height = screen_h - taskbar_h
+        x_pos = screen_w - self.overlay_width
+        y_pos = 0
 
         self.root.geometry(f"{self.overlay_width}x{self.overlay_height}+{x_pos}+{y_pos}")
         self.root.configure(bg=COLORS['bg_card'])
@@ -2335,7 +2354,8 @@ class SubtitleOverlay(ResizableWindow):
                 highlightthickness=0,
                 state="disabled",
                 cursor="arrow",
-                height=3
+                height=3,
+                takefocus=False
             )
             subtitle_text.pack(fill="both", expand=True)
             subtitle_text.tag_configure("final", foreground=COLORS['text_primary'])
@@ -2373,6 +2393,18 @@ class SubtitleOverlay(ResizableWindow):
         # ESC 키로 종료
         self.root.bind("<Escape>", lambda e: self.quit_app())
 
+        # 비버튼 영역 클릭 시 focus 방지
+        def _prevent_focus(event):
+            widget = event.widget
+            # cursor="hand2" 인 위젯(버튼)만 focus 허용
+            try:
+                if str(widget.cget("cursor")) == "hand2":
+                    return
+            except:
+                pass
+            self.root.focus_set()
+        self.root.bind_all("<Button-1>", _prevent_focus, add="+")
+
         # 드래그 (컨트롤바에서)
         control_frame.bind("<Button-1>", self.start_drag)
         control_frame.bind("<B1-Motion>", self.on_drag)
@@ -2400,7 +2432,7 @@ class SubtitleOverlay(ResizableWindow):
         opacity_down_btn.bind("<Leave>", lambda e: opacity_down_btn.config(fg=COLORS['text_dim']))
 
         self._opacity_label = tk.Label(
-            opacity_frame, text="95%", font=("Segoe UI", 8),
+            opacity_frame, text="100%", font=("Segoe UI", 8),
             fg=COLORS['text_secondary'], bg=COLORS['bg_btn'], padx=2, pady=8
         )
         self._opacity_label.pack(side="left")
@@ -2470,10 +2502,16 @@ class SubtitleOverlay(ResizableWindow):
             fg=COLORS['success'] if self._rt_visible else COLORS['text_dim']
         ))
 
-        # ── 실시간 자막 별도 창 (높이 고정 + 폰트 축소) ──
-        rt_height = max(1, len(target_languages)) * 60
+        # ── 실시간 자막 별도 창 (확정 자막 아래에 배치) ──
+        # 전체 높이의 20%를 실시간 창에 할당
+        total_h = self.overlay_height
+        rt_height = int(total_h * 0.2)
+        # 메인 창(확정)은 나머지 80%
+        self.overlay_height = total_h - rt_height - 4
+        self.root.geometry(f"{self.overlay_width}x{self.overlay_height}+{x_pos}+{y_pos}")
+        self._bg_window.geometry(f"{self.overlay_width}x{self.overlay_height}+{x_pos}+{y_pos}")
         rt_x = x_pos
-        rt_y = y_pos - rt_height - 4  # 메인 창 바로 위
+        rt_y = y_pos + self.overlay_height + 4  # 메인 창 바로 아래
 
         self._rt_window = tk.Toplevel(self.root)
         self._rt_window.overrideredirect(True)
@@ -2508,7 +2546,8 @@ class SubtitleOverlay(ResizableWindow):
                 highlightthickness=0,
                 state="disabled",
                 cursor="arrow",
-                height=3
+                height=3,
+                takefocus=False
             )
             realtime_text.pack(fill="both", expand=True)
             realtime_text.tag_configure("realtime", foreground=COLORS['text_secondary'])
@@ -3212,16 +3251,7 @@ Text: {source_text}"""
         self.root.destroy()
 
     def back_to_settings(self):
-        """세션 종료 - 기록이 있으면 다운로드 모달 표시"""
-        global is_listening
-        is_listening = False
-        if self.speech_recognizer:
-            try:
-                self.speech_recognizer.stop_continuous_recognition_async()
-            except:
-                pass
-        self.status_label.config(text="Stopped", fg=COLORS['text_dim'])
-
+        """다운로드 모달 표시 (음성인식은 계속 유지)"""
         self._show_download_modal()
 
     def _back_translate_korean(self, english_texts, source_texts):
@@ -3504,25 +3534,50 @@ Format:
         bottom_frame = tk.Frame(container, bg=COLORS['bg_main'])
         bottom_frame.pack(fill="x", pady=(15, 0))
 
-        # 저장 없이 나가기
-        skip_btn = tk.Label(
+        # 닫기 버튼 (모달만 닫고 자막 계속)
+        close_btn = tk.Label(
             bottom_frame,
-            text="Skip & Go to Settings",
+            text="Close",
             font=("Segoe UI", 10),
             fg=COLORS['text_dim'], bg=COLORS['bg_main'],
             cursor="hand2"
         )
-        skip_btn.pack(side="left")
+        close_btn.pack(side="left")
 
-        def on_skip(e=None):
+        def on_close(e=None):
+            self.full_history.clear()
+            self.modal.destroy()
+
+        close_btn.bind("<Button-1>", on_close)
+        close_btn.bind("<Enter>", lambda e: close_btn.config(fg=COLORS['text_secondary']))
+        close_btn.bind("<Leave>", lambda e: close_btn.config(fg=COLORS['text_dim']))
+
+        # Settings로 이동 (세션 종료)
+        settings_btn = tk.Label(
+            bottom_frame,
+            text="Go to Settings",
+            font=("Segoe UI", 10),
+            fg=COLORS['text_dim'], bg=COLORS['bg_main'],
+            cursor="hand2"
+        )
+        settings_btn.pack(side="right")
+
+        def on_go_settings(e=None):
+            global is_listening
+            is_listening = False
+            if self.speech_recognizer:
+                try:
+                    self.speech_recognizer.stop_continuous_recognition_async()
+                except:
+                    pass
             self.modal.destroy()
             self.go_back = True
             self.root.quit()
             self.root.destroy()
 
-        skip_btn.bind("<Button-1>", on_skip)
-        skip_btn.bind("<Enter>", lambda e: skip_btn.config(fg=COLORS['text_secondary']))
-        skip_btn.bind("<Leave>", lambda e: skip_btn.config(fg=COLORS['text_dim']))
+        settings_btn.bind("<Button-1>", on_go_settings)
+        settings_btn.bind("<Enter>", lambda e: settings_btn.config(fg=COLORS['text_secondary']))
+        settings_btn.bind("<Leave>", lambda e: settings_btn.config(fg=COLORS['text_dim']))
 
         self.modal.grab_set()
         self.modal.focus_force()
@@ -3764,7 +3819,7 @@ Format:
             rtw.config(state="disabled")
 
     def _center_scroll(self, tw, new_text_len=0):
-        """새 자막 스크롤 처리. 긴 텍스트는 최상단부터 보여주고 2초 후 스크롤"""
+        """새 자막 스크롤 처리. 긴 텍스트는 최상단부터 보여주고 2초 후 천천히 끝까지 스크롤"""
         tw.update_idletasks()
 
         if new_text_len > 50:
@@ -3780,25 +3835,26 @@ Format:
             tw.yview(start_index)
             tw.update_idletasks()
 
-            # 끝이 안 보이면 2초 후 스크롤
-            s, e = tw.yview()
-            if e < 1.0:
-                self._scroll_seq = getattr(self, '_scroll_seq', 0) + 1
-                seq = self._scroll_seq
-                self.root.after(2000, lambda: self._auto_scroll_tick(tw, seq))
+            # 2초 후 끝까지 무조건 스크롤
+            self._scroll_seq = getattr(self, '_scroll_seq', 0) + 1
+            seq = self._scroll_seq
+            self.root.after(2000, lambda: self._auto_scroll_tick(tw, seq))
         else:
             # 짧은 텍스트 → 끝 보여주기
             tw.see("end")
 
     def _auto_scroll_tick(self, tw, seq):
-        """스크롤 애니메이션 틱 (새 자막이 들어오면 seq 변경으로 이전 애니메이션 중단)"""
+        """스크롤 애니메이션: 천천히 끝까지 무조건 스크롤"""
         if seq != self._scroll_seq:
             return
         try:
             s, e = tw.yview()
-            if e >= 1.0:
+            if e >= 0.999:
+                tw.see("end")
                 return
-            step = max(0.005, (e - s) * 0.05)
+            # 남은 거리 기반 step (천천히, 부드럽게)
+            remaining = 1.0 - e
+            step = max(0.003, remaining * 0.08)
             tw.yview_moveto(s + step)
             self.root.after(50, lambda: self._auto_scroll_tick(tw, seq))
         except Exception:
@@ -3888,16 +3944,19 @@ Format:
         self._set_realtime_text(lang_code, text, "realtime")
 
     def _append_final(self, lang_code, text):
-        """확정 번역을 누적 추가 (긴 자막은 최상단부터 스크롤)"""
+        """확정 번역을 누적 추가 (문장 단위 줄바꿈, 긴 자막은 최상단부터 스크롤)"""
+        import re
         tw = self.subtitle_texts.get(lang_code)
         if not tw:
             return
         self._clear_realtime(lang_code)
+        # 문장 단위 줄바꿈: 문장 끝 부호 뒤 공백을 줄바꿈으로 변환
+        formatted = re.sub(r'([.!?])\s+', r'\1\n', text.strip())
         tw.config(state="normal")
         if tw.get("1.0", "end").strip():
-            tw.insert("end", "\n\n" + text, "final")
+            tw.insert("end", "\n\n" + formatted, "final")
         else:
-            tw.insert("end", text, "final")
+            tw.insert("end", formatted, "final")
         self._center_scroll(tw, len(text))
         tw.config(state="disabled")
 
