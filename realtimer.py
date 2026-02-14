@@ -19,7 +19,6 @@ try:
     WEB_SERVER_SUPPORT = True
 except Exception as e:
     WEB_SERVER_SUPPORT = False
-    print(f"[INFO] web_server not available. QR feature disabled. ({e})")
 
 # ========================
 # Windows 둥근 모서리 및 리사이즈 헬퍼
@@ -201,7 +200,6 @@ try:
     DND_SUPPORT = True
 except ImportError:
     DND_SUPPORT = False
-    print("[INFO] tkinterdnd2 not installed. Drag & drop disabled. Install with: pip install tkinterdnd2")
 
 # ========================
 # 1. API 설정 (환경 변수에서 자동 로드)
@@ -219,8 +217,6 @@ SPEECH_REGION = os.getenv("SPEECH_REGION")
 
 # API 키 검증
 if not OPENAI_API_KEY or not SPEECH_KEY or not SPEECH_REGION:
-    print("오류: .env 파일에 API 키가 설정되지 않았습니다.")
-    print("필요한 설정: OPENAI_API_KEY, SPEECH_KEY, SPEECH_REGION")
     sys.exit(1)
 
 # ========================
@@ -249,7 +245,6 @@ def _llm_call(messages, temperature=0.0, max_tokens_val=500):
         kwargs["max_completion_tokens"] = max_tokens_val
         return kwargs
 
-    print(f"[LLM] 호출: model={OPENAI_MODEL}, no_temperature={_no_temperature}")
     last_error = None
     for attempt in range(3):
         try:
@@ -263,7 +258,6 @@ def _llm_call(messages, temperature=0.0, max_tokens_val=500):
                 changed = True
             if not changed:
                 raise
-            print(f"[LLM] 파라미터 자동 조정 (시도 {attempt+1}): no_temperature={_no_temperature}")
     raise last_error
 
 # 다국어 설정
@@ -289,7 +283,6 @@ try:
     SD_AVAILABLE = True
 except ImportError:
     SD_AVAILABLE = False
-    print("[INFO] sounddevice not installed. Mic selection disabled.")
 
 
 def get_microphone_list():
@@ -304,7 +297,7 @@ def get_microphone_list():
             if d['max_input_channels'] > 0 and d['hostapi'] == 0:
                 devices.append({'name': d['name'], 'id': i})
     except Exception as e:
-        print(f"[MIC] Device enumeration failed: {e}")
+        pass
     return devices
 
 # ========================
@@ -374,7 +367,7 @@ def load_glossary():
                 data = json.load(f)
                 return data if isinstance(data, list) else []
     except Exception as e:
-        print(f"[Glossary] 불러오기 실패: {e}")
+        pass
     return []
 
 def save_glossary(terms):
@@ -383,7 +376,7 @@ def save_glossary(terms):
         with open(GLOSSARY_FILE, 'w', encoding='utf-8') as f:
             json.dump(terms, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        print(f"[Glossary] 저장 실패: {e}")
+        pass
 
 # ========================
 # 3. PDF 전문용어 추출
@@ -408,14 +401,13 @@ def extract_text_from_pdf(filepath):
                     if page_text:
                         text += page_text + "\n"
     except Exception as e:
-        print(f"PDF 추출 오류: {e}")
+        pass
     return text
 
 
 def extract_terminology_with_gpt(text):
     """GPT로 전문용어 추출"""
     try:
-        print(f"[GPT] 전문용어 추출 시작 (텍스트 길이: {len(text)})")
 
         prompt = f"""다음 텍스트에서 전문용어(영어)를 추출하세요.
 의학, 수의학, 과학 분야의 전문 용어만 추출하세요.
@@ -425,11 +417,9 @@ def extract_terminology_with_gpt(text):
 텍스트:
 {text[:4000]}"""
 
-        print(f"[GPT] API 호출 중... (모델: {OPENAI_MODEL})")
         resp = _llm_call([{"role": "user", "content": prompt}], temperature=0.0, max_tokens_val=500)
 
         result = resp.choices[0].message.content.strip()
-        print(f"[GPT] 응답 수신: {result[:200]}...")
 
         # 코드 블록 마커 제거
         result = result.replace('```', '')
@@ -452,11 +442,9 @@ def extract_terminology_with_gpt(text):
 
         # 중복 제거 및 정리
         terms = list(dict.fromkeys(terms))
-        print(f"[GPT] 추출 완료: {len(terms)}개 용어")
         return terms
     except Exception as e:
         import traceback
-        print(f"[GPT] 추출 오류: {e}")
         traceback.print_exc()
         return []
 
@@ -876,6 +864,19 @@ class SettingsWindow(ResizableWindow):
         # 둥근 모서리 적용
         self.root.update_idletasks()
         apply_rounded_corners(self.root)
+
+        # 창을 맨 앞으로 가져오기
+        self.root.after(100, self._bring_to_front)
+
+    def _bring_to_front(self):
+        """프로그램 실행 시 창을 맨 앞으로"""
+        self.root.lift()
+        self.root.focus_force()
+        try:
+            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+            ctypes.windll.user32.SetForegroundWindow(hwnd)
+        except:
+            pass
 
     def setup_ui(self):
         # 커스텀 타이틀바
@@ -1460,7 +1461,6 @@ class SettingsWindow(ResizableWindow):
 
         try:
             filename = os.path.basename(filepath)
-            print(f"[PDF] 1단계: 텍스트 추출 시작 - {filename}")
 
             # 로딩 애니메이션 시작
             self._loading_active = True
@@ -1477,28 +1477,23 @@ class SettingsWindow(ResizableWindow):
 
             # PDF 텍스트 추출
             text = extract_text_from_pdf(filepath)
-            print(f"[PDF] 추출된 텍스트 길이: {len(text)} 글자")
 
             if not text.strip():
                 self._loading_active = False
-                print("[PDF] 오류: 텍스트 추출 실패")
                 self.root.after(0, lambda: status_label.config(text="Failed", fg=COLORS['danger']))
                 return
 
             # GPT 분석
             terms = extract_terminology_with_gpt(text)
             self._loading_active = False
-            print(f"[PDF] GPT 분석 완료: {len(terms)}개 용어 추출")
 
             if not terms:
-                print("[PDF] 오류: 추출된 용어 없음")
                 self.root.after(0, lambda: status_label.config(text="No terms", fg=COLORS['danger']))
                 return
 
             count = len(terms)
             self.root.after(0, lambda c=count: status_label.config(text=f"{c} terms", fg=COLORS['success']))
 
-            print(f"[PDF] 추출 완료: {count}개 용어 - 배치에 추가")
             # 배치 리스트에 누적 (중복 제거)
             for term in terms:
                 if term not in self._pdf_batch_terms:
@@ -1506,7 +1501,6 @@ class SettingsWindow(ResizableWindow):
 
         except Exception as e:
             import traceback
-            print(f"[PDF] 처리 오류: {e}")
             traceback.print_exc()
             self.root.after(0, lambda: status_label.config(text="Error", fg=COLORS['danger']))
 
@@ -1517,7 +1511,6 @@ class SettingsWindow(ResizableWindow):
             self.root.after(200, self._poll_pdf_batch)
         else:
             # 모든 PDF 처리 완료 - 합쳐진 용어로 모달 1회 표시
-            print(f"[PDF] 배치 완료, 총 {len(self._pdf_batch_terms)}개 용어")
             if self._pdf_batch_terms:
                 terms = list(self._pdf_batch_terms)
                 items = list(self._pdf_batch_items)
@@ -1526,20 +1519,15 @@ class SettingsWindow(ResizableWindow):
                 self._pdf_batch_items.clear()
                 self.show_term_modal(terms, None, items)
             else:
-                print("[PDF] 추출된 용어 없음")
                 self._pdf_batch_threads.clear()
                 self._pdf_batch_items.clear()
 
     def show_term_modal(self, terms, filepath, pdf_item=None):
         """전문용어 선택 모달 표시 (배치: pdf_item이 리스트일 수 있음)"""
-        print(f"[PDF] show_term_modal 호출됨: {len(terms)}개 용어")
 
         try:
-            print("[PDF] 모달 생성 중...")
             modal = TermSelectionModal(self.root, terms)
-            print("[PDF] 모달 표시 중...")
             selected = modal.show()
-            print(f"[PDF] 모달 닫힘, 선택된 용어: {len(selected) if selected else 0}개")
 
             # 용어 추가
             if selected:
@@ -1555,7 +1543,6 @@ class SettingsWindow(ResizableWindow):
                         status_label.config(text="Cancelled", fg=COLORS['text_dim'])
         except Exception as e:
             import traceback
-            print(f"[PDF] 모달 오류: {e}")
             traceback.print_exc()
 
     def add_glossary_row_with_text(self, text):
@@ -2176,6 +2163,13 @@ class SubtitleOverlay(ResizableWindow):
         self.push_stream = None
         self.speech_recognizer = None
 
+        # 조기 확정 (Early Confirm) 상태
+        self._early_confirmed_word_count = 0  # 이번 발화에서 조기 확정된 단어 수
+        self._early_confirm_lock = threading.Lock()
+        self._early_confirm_in_progress = False  # 중복 API 호출 방지
+        self._last_realtime_source = ""       # 실시간 번역 중복 방지
+        self._realtime_in_progress = False    # 실시간 번역 진행 중 플래그
+
         # 창 설정
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
@@ -2598,9 +2592,8 @@ class SubtitleOverlay(ResizableWindow):
         try:
             web_server.set_languages(LANGUAGES, source_language, target_languages)
             web_server.start()
-            print(f"[WebServer] QR URL: {web_server.get_url()}")
         except Exception as e:
-            print(f"[WebServer] Failed to start: {e}")
+            pass
 
     def update_client_count(self):
         """접속자 수 업데이트"""
@@ -2878,16 +2871,12 @@ class SubtitleOverlay(ResizableWindow):
                         if m['id'] == mic_id:
                             mic_name = m['name']
                             break
-                    print(f"[MIC] Using: {mic_name} (id={mic_id})")
                 except Exception as mic_err:
-                    print(f"[MIC] Failed to open device {mic_id}: {mic_err}")
-                    print("[MIC] Falling back to System Default")
                     self._stop_mic_stream()
                     audio_config = None
             else:
                 self.push_stream = None
                 self.sd_stream = None
-                print("[MIC] Using: System Default")
 
             self.speech_recognizer = speechsdk.SpeechRecognizer(
                 speech_config=speech_config,
@@ -2899,48 +2888,162 @@ class SubtitleOverlay(ResizableWindow):
                 phrase_list = speechsdk.PhraseListGrammar.from_recognizer(self.speech_recognizer)
                 for term in terminology_list:
                     phrase_list.addPhrase(term)
-                print(f"[STT] PhraseList 등록: {len(terminology_list)}개 용어")
 
             self.speech_recognizer.recognized.connect(self.on_recognized)
             self.speech_recognizer.recognizing.connect(self.on_recognizing)
             self.speech_recognizer.canceled.connect(self.on_canceled)
             self.speech_recognizer.session_stopped.connect(self.on_session_stopped)
-            print(f"음성 인식 초기화 성공 (소스: {source_language}, 타겟: {target_languages})")
         except Exception as e:
-            print(f"음성 인식 초기화 오류: {e}")
             for lang_code, tw in self.subtitle_texts.items():
                 tw.config(state="normal")
                 tw.delete("1.0", "end")
                 tw.insert("end", f"ERROR: {str(e)[:50]}")
                 tw.config(state="disabled", fg=COLORS['danger'])
 
+    def _get_remaining_text(self, full_text):
+        """조기 확정된 단어 수만큼 앞에서 잘라내고 잔여 텍스트 반환"""
+        with self._early_confirm_lock:
+            skip_words = self._early_confirmed_word_count
+        if skip_words <= 0:
+            return full_text
+        words = full_text.split()
+        if skip_words >= len(words):
+            return ""
+        remaining = ' '.join(words[skip_words:])
+        return remaining
+
     def on_recognizing(self, evt):
         """실시간 인식 중"""
         if evt.result.text and is_listening:
             text = evt.result.text
-            if len(text.strip()) > 3:
+            if len(text.strip()) <= 3:
+                return
+
+            # 조기 확정된 단어 수만큼 앞에서 잘라냄
+            remaining = self._get_remaining_text(text)
+            if not remaining:
+                return
+
+            # 중복 제거: 이전과 동일한 잔여 텍스트면 스킵
+            if remaining == self._last_realtime_source:
+                return
+            self._last_realtime_source = remaining
+
+            with self._early_confirm_lock:
+                skip = self._early_confirmed_word_count
+            print(f"[EarlyConfirm] on_recognizing: full={len(text)}자({len(text.split())}w), skip={skip}w, remaining={len(remaining)}자 | '{remaining[:60]}'")
+
+            # 잔여 텍스트 50자 초과 + 조기 확정 진행 중이 아닐 때 → 조기 확정 시도
+            if len(remaining) > 50 and not self._early_confirm_in_progress:
+                print(f"[EarlyConfirm] 50자 초과 → early_confirm 시작: '{remaining[:80]}'")
                 threading.Thread(
-                    target=self.realtime_translate, args=(text,), daemon=True
+                    target=self.early_confirm, args=(remaining,), daemon=True
+                ).start()
+
+            # 잔여 텍스트로 실시간 번역 (이전 번역 진행 중이면 스킵)
+            if len(remaining.strip()) > 3 and not self._realtime_in_progress:
+                self._realtime_in_progress = True
+                threading.Thread(
+                    target=self._realtime_translate_wrapper, args=(remaining,), daemon=True
                 ).start()
 
     def on_recognized(self, evt):
         """인식 완료"""
         if evt.result.text and is_listening:
-            subtitle_queue.put(("recognized", evt.result.text))
+            text = evt.result.text
+
+            # 조기 확정된 부분 제거 → 잔여분만 최종 번역
+            # 조기 확정된 단어 수만큼 앞에서 잘라냄
+            remaining = self._get_remaining_text(text)
+
+            # 상태 초기화 (다음 발화를 위해)
+            with self._early_confirm_lock:
+                skip = self._early_confirmed_word_count
+                self._early_confirmed_word_count = 0
+                self._early_confirm_in_progress = False
+            self._last_realtime_source = ""
+            self._realtime_in_progress = False
+
+            total_words = len(text.split())
+            print(f"[EarlyConfirm] on_recognized: total={total_words}w, skip={skip}w, remaining='{remaining[:60]}' ({len(remaining)}자)")
+
+            if remaining:
+                subtitle_queue.put(("recognized", remaining))
+            else:
+                print(f"[EarlyConfirm] on_recognized: 전부 조기확정됨, 스킵")
+
+    def early_confirm(self, source_text):
+        """50자 초과 시 LLM에게 확정 가능한 단어 수를 물어봄 → 원본에서 잘라서 확정"""
+        self._early_confirm_in_progress = True
+        words = source_text.split()
+        total_words = len(words)
+        print(f"[EarlyConfirm] === API 호출 시작 === {total_words}w, '{source_text[:100]}'")
+        try:
+            # 단어에 번호를 매겨서 LLM에게 보여줌 → 숫자만 반환받음 (환각 방지)
+            numbered = ' '.join([f"[{i+1}]{w}" for i, w in enumerate(words)])
+            prompt = f"""You are a speech recognition assistant. The following text is being spoken in real-time (not yet complete).
+Each word is numbered like [1]word [2]word ...
+
+Text: {numbered}
+
+How many words from the beginning form complete sentence(s) that are unlikely to change?
+- Count only up to a natural sentence boundary (period, question mark, or sentence-ending grammar like 다/요/니다/습니다/겁니다/입니다)
+- If no clear sentence boundary exists, answer 0
+- Answer with ONLY a single integer (e.g. 0, 5, 12)"""
+
+            resp = _llm_call(
+                [{"role": "user", "content": prompt}],
+                temperature=0.0,
+                max_tokens_val=10
+            )
+            result = resp.choices[0].message.content.strip()
+            print(f"[EarlyConfirm] API 응답: '{result}'")
+
+            # 숫자 파싱
+            import re
+            match = re.search(r'\d+', result)
+            if not match:
+                print(f"[EarlyConfirm] 숫자 파싱 실패, 스킵")
+                return
+
+            confirm_count = int(match.group())
+            print(f"[EarlyConfirm] 확정 단어 수: {confirm_count}/{total_words}")
+
+            if confirm_count <= 0 or confirm_count >= total_words:
+                print(f"[EarlyConfirm] 확정 없음 (0이거나 전체)")
+                return
+
+            # 원본 텍스트에서 직접 잘라냄 (환각 불가능)
+            confirmed_text = ' '.join(words[:confirm_count])
+            pending_text = ' '.join(words[confirm_count:])
+
+            with self._early_confirm_lock:
+                self._early_confirmed_word_count += confirm_count
+                total_skip = self._early_confirmed_word_count
+            print(f"[EarlyConfirm] 확정! skip={total_skip}w | confirmed='{confirmed_text[:60]}' | pending='{pending_text[:60]}'")
+
+            # 확정 부분 → 최종 번역 → 확정 윈도우로
+            self.translate_final(confirmed_text)
+
+            # 잔여 부분 → 실시간 윈도우에 표시
+            if pending_text:
+                self.realtime_translate(pending_text)
+
+        except Exception as e:
+            print(f"[EarlyConfirm] API 오류: {e}")
+        finally:
+            self._early_confirm_in_progress = False
+            print(f"[EarlyConfirm] === 처리 완료 ===")
 
     def on_canceled(self, evt):
         """음성 인식 취소/타임아웃 시 자동 재연결"""
         reason = evt.cancellation_details.reason
-        print(f"[Speech] Canceled: {reason}, ErrorDetails: {evt.cancellation_details.error_details}")
         if is_listening:
-            print("[Speech] Auto-reconnecting...")
             self._reconnect_recognition()
 
     def on_session_stopped(self, evt):
         """세션 중지 시 자동 재연결"""
-        print(f"[Speech] Session stopped: {evt}")
         if is_listening:
-            print("[Speech] Auto-reconnecting after session stop...")
             self._reconnect_recognition()
 
     def _reconnect_recognition(self):
@@ -2960,18 +3063,22 @@ class SubtitleOverlay(ResizableWindow):
                         text=f"{source_info.get('flag', '')} Listening",
                         fg=COLORS['success']
                     )
-                    print("[Speech] Reconnected successfully")
             except Exception as e:
-                print(f"[Speech] Reconnect failed: {e}")
                 # 3초 후 재시도
                 self.root.after(3000, do_reconnect)
 
         # UI 스레드에서 실행 (약간의 딜레이)
         self.root.after(1000, do_reconnect)
 
+    def _realtime_translate_wrapper(self, source_text):
+        """실시간 번역 래퍼 (진행 중 플래그 관리)"""
+        try:
+            self.realtime_translate(source_text)
+        finally:
+            self._realtime_in_progress = False
+
     def realtime_translate(self, source_text):
         """실시간 번역 (여러 언어 동시)"""
-        print(f"[번역] 실시간 번역 시작: '{source_text[:50]}...'")
         try:
             term_hint = ""
             if terminology_list:
@@ -2989,7 +3096,6 @@ Text: {source_text}"""
 
             resp = _llm_call([{"role": "user", "content": prompt}], temperature=0.0, max_tokens_val=200)
             result = resp.choices[0].message.content.strip()
-            print(f"[번역] 실시간 응답: '{result[:100]}'")
 
             # 결과 파싱
             translations = {}
@@ -3001,14 +3107,12 @@ Text: {source_text}"""
                     translation = parts[1].strip()
                     translations[lang_code] = translation
 
-            print(f"[번역] 실시간 파싱 결과: {translations}")
             subtitle_queue.put(("realtime", translations))
         except Exception as e:
-            print(f"번역 오류: {e}")
+            pass
 
     def translate_final(self, source_text):
         """최종 번역 (여러 언어 동시)"""
-        print(f"[번역] 최종 번역 시작: '{source_text[:50]}...'")
         try:
             context = ""
             if history:
@@ -3031,7 +3135,6 @@ Text: {source_text}"""
 
             resp = _llm_call([{"role": "user", "content": prompt}], temperature=0.0, max_tokens_val=300)
             result = resp.choices[0].message.content.strip()
-            print(f"[번역] 최종 응답: '{result[:100]}'")
 
             # 결과 파싱
             translations = {}
@@ -3043,12 +3146,11 @@ Text: {source_text}"""
                     translation = parts[1].strip()
                     translations[lang_code] = translation
 
-            print(f"[번역] 최종 파싱 결과: {translations}")
             history.append((source_text, translations))
             self.full_history.append((source_text, translations))
             subtitle_queue.put(("final", translations))
         except Exception as e:
-            print(f"번역 오류: {e}")
+            pass
 
     def toggle_pause(self):
         """번역 일시정지/재개 토글"""
@@ -3067,7 +3169,6 @@ Text: {source_text}"""
             self.speech_recognizer.start_continuous_recognition_async()
             source_info = LANGUAGES.get(source_language, {})
             self.status_label.config(text=f"{source_info.get('flag', '')} Listening", fg=COLORS['success'])
-            print("음성 인식 시작")
 
     def stop_listening(self):
         """음성 인식 중지"""
@@ -3077,7 +3178,6 @@ Text: {source_text}"""
             self.speech_recognizer.stop_continuous_recognition_async()
             self._stop_mic_stream()
             self.status_label.config(text="Stopped", fg=COLORS['text_dim'])
-            print("음성 인식 중지")
 
     def toggle_dark_mode(self):
         """다크모드 토글"""
@@ -3266,7 +3366,6 @@ Keep the numbering. Output ONLY the Korean translations, one per line.
 
             resp = _llm_call([{"role": "user", "content": prompt}], temperature=0.0, max_tokens_val=2000)
             result = resp.choices[0].message.content.strip()
-            print(f"[역번역] 응답: {result[:200]}...")
 
             # 번호별로 파싱
             ko_texts = []
@@ -3284,11 +3383,9 @@ Keep the numbering. Output ONLY the Korean translations, one per line.
 
             # 개수가 맞지 않으면 원본(STT) 사용
             if len(ko_texts) != len(english_texts):
-                print(f"[역번역] 개수 불일치: 요청 {len(english_texts)}, 응답 {len(ko_texts)}")
                 return source_texts
             return ko_texts
         except Exception as e:
-            print(f"[역번역] 오류: {e}")
             return source_texts
 
     def _build_full_transcript(self):
@@ -3818,6 +3915,14 @@ Format:
             rtw.insert("1.0", "...", "dim")
             rtw.config(state="disabled")
 
+    def _smooth_scroll_to_end(self, tw):
+        """새 확정 자막이 추가되면 부드럽게 끝까지 스크롤"""
+        tw.update_idletasks()
+        self._scroll_seq = getattr(self, '_scroll_seq', 0) + 1
+        seq = self._scroll_seq
+        # 즉시 시작 (딜레이 없이 부드럽게)
+        self.root.after(16, lambda: self._auto_scroll_tick(tw, seq))
+
     def _center_scroll(self, tw, new_text_len=0):
         """새 자막 스크롤 처리. 긴 텍스트는 최상단부터 보여주고 2초 후 천천히 끝까지 스크롤"""
         tw.update_idletasks()
@@ -3844,7 +3949,7 @@ Format:
             tw.see("end")
 
     def _auto_scroll_tick(self, tw, seq):
-        """스크롤 애니메이션: 천천히 끝까지 무조건 스크롤"""
+        """스크롤 애니메이션: 부드럽게 끝까지 스크롤"""
         if seq != self._scroll_seq:
             return
         try:
@@ -3852,9 +3957,9 @@ Format:
             if e >= 0.999:
                 tw.see("end")
                 return
-            # 남은 거리 기반 step (천천히, 부드럽게)
+            # 남은 거리의 15%씩 이동 (easing)
             remaining = 1.0 - e
-            step = max(0.003, remaining * 0.08)
+            step = max(0.005, remaining * 0.15)
             tw.yview_moveto(s + step)
             self.root.after(50, lambda: self._auto_scroll_tick(tw, seq))
         except Exception:
@@ -3944,21 +4049,22 @@ Format:
         self._set_realtime_text(lang_code, text, "realtime")
 
     def _append_final(self, lang_code, text):
-        """확정 번역을 누적 추가 (문장 단위 줄바꿈, 긴 자막은 최상단부터 스크롤)"""
+        """확정 번역을 누적 추가 — 부드러운 스크롤로 올라감"""
         import re
         tw = self.subtitle_texts.get(lang_code)
         if not tw:
             return
         self._clear_realtime(lang_code)
         # 문장 단위 줄바꿈: 문장 끝 부호 뒤 공백을 줄바꿈으로 변환
-        formatted = re.sub(r'([.!?])\s+', r'\1\n', text.strip())
+        formatted = re.sub(r'([.!?])\s+', r'\1\n\n', text.strip())
         tw.config(state="normal")
         if tw.get("1.0", "end").strip():
             tw.insert("end", "\n\n" + formatted, "final")
         else:
             tw.insert("end", formatted, "final")
-        self._center_scroll(tw, len(text))
         tw.config(state="disabled")
+        # 점프 없이 부드럽게 끝까지 스크롤
+        self._smooth_scroll_to_end(tw)
 
     def _show_dim(self, lang_code, text):
         """번역 중 등 임시 메시지 표시"""
@@ -4023,8 +4129,6 @@ Format:
 # ========================
 def startup_diagnostics():
     """빌드 전/실행 시 환경 점검"""
-    print("-" * 60)
-    print("[DIAGNOSTICS] Checking environment...")
     errors = []
     warnings = []
 
@@ -4038,10 +4142,6 @@ def startup_diagnostics():
     api_key = os.environ.get('OPENAI_API_KEY', '')
     if not api_key or api_key.startswith('your-'):
         errors.append("OPENAI_API_KEY is missing or placeholder")
-    else:
-        print(f"  [OK] OpenAI API Key: ...{api_key[-8:]}")
-
-    print(f"  [OK] Speech Region: {SPEECH_REGION}")
 
     # 2. 필수 패키지 확인
     required = {
@@ -4059,59 +4159,31 @@ def startup_diagnostics():
     for mod, name in required.items():
         try:
             __import__(mod)
-            print(f"  [OK] {name}")
         except ImportError:
             errors.append(f"Missing required package: {name}")
 
     for mod, name in optional.items():
         try:
             __import__(mod)
-            print(f"  [OK] {name}")
         except ImportError:
             warnings.append(f"Missing optional package: {name}")
 
-    # 3. 마이크 장치 확인
-    mics = get_microphone_list()
-    print(f"  [OK] Audio input devices: {len(mics) - 1} found")  # -1 for System Default
-    for m in mics:
-        if m['id'] is not None:
-            print(f"       - [{m['id']}] {m['name']}")
-
-    # 4. ngrok 토큰 확인
+    # 3. ngrok 토큰 확인
     ngrok_token = os.environ.get('NGROK_AUTH_TOKEN', '')
-    if ngrok_token:
-        print(f"  [OK] ngrok auth token: ...{ngrok_token[-6:]}")
-    else:
+    if not ngrok_token:
         warnings.append("NGROK_AUTH_TOKEN not set (external access disabled)")
 
-    # 5. 웹 서버 모듈 확인
-    if WEB_SERVER_SUPPORT:
-        print("  [OK] Web server module loaded")
-    else:
+    # 4. 웹 서버 모듈 확인
+    if not WEB_SERVER_SUPPORT:
         warnings.append("Web server module not available")
 
-    # 결과 출력
-    if warnings:
-        print()
-        for w in warnings:
-            print(f"  [WARN] {w}")
     if errors:
-        print()
-        for e in errors:
-            print(f"  [ERROR] {e}")
-        print("-" * 60)
-        print("[DIAGNOSTICS] FAILED - fix errors above before building")
         return False
 
-    print("-" * 60)
-    print("[DIAGNOSTICS] ALL CHECKS PASSED")
     return True
 
 
 def main():
-    print("=" * 60)
-    print("⬢ LECTURE LENS")
-    print("=" * 60)
 
     # 환경 점검
     if not startup_diagnostics():
@@ -4127,26 +4199,15 @@ def main():
         result = settings.run()
 
         if result is None:
-            print("프로그램 종료")
             break
 
         # 2단계: 오버레이 시작
-        print(f"소스 언어: {result['source_lang']}")
-        print(f"타겟 언어: {', '.join(result['target_langs'])}")
-        if result['terminology']:
-            print(f"전문용어: {len(result['terminology'])}개")
-        if result['pdf_path']:
-            print(f"PDF: {result['pdf_path']}")
-        print("=" * 60)
-
         app = SubtitleOverlay()
         app.run()
 
         if app.go_back:
-            print("설정으로 돌아갑니다...")
             continue
         else:
-            print("프로그램 종료")
             break
 
 
