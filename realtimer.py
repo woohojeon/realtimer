@@ -3440,7 +3440,8 @@ Keep the numbering. Output ONLY the Korean translations, one per line.
         lines.append("=" * 50)
         lines.append("")
         for i, (source, translations) in enumerate(self.full_history):
-            lines.append(f"[{i+1}] (한국어) {ko_texts[i]}")
+            ko = ko_texts[i] if i < len(ko_texts) else source
+            lines.append(f"[{i+1}] (한국어) {ko}")
             for lang_code in target_languages:
                 lang_name = LANGUAGES.get(lang_code, {}).get('name', lang_code)
                 trans = translations.get(lang_code, '')
