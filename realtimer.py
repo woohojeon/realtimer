@@ -5,6 +5,7 @@ from tkinter import ttk, scrolledtext, filedialog
 import threading
 import queue
 from openai import OpenAI
+import anthropic
 from collections import deque
 import os
 import json
@@ -212,6 +213,8 @@ load_dotenv(os.path.join(_base_dir, '.env'))
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
 SPEECH_KEY = os.getenv("SPEECH_KEY")
 SPEECH_REGION = os.getenv("SPEECH_REGION")
 
@@ -225,6 +228,7 @@ if not OPENAI_API_KEY or not SPEECH_KEY or not SPEECH_REGION:
 subtitle_queue = queue.Queue()
 is_listening = False
 client = OpenAI(api_key=OPENAI_API_KEY)
+claude_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
 history = deque(maxlen=5)
 last_realtime_translation = ''
 terminology_list = []  # 전문용어 리스트 (영어)
@@ -2998,13 +3002,22 @@ How many words from the beginning form complete sentence(s) or clause(s) that ar
 - If no clear boundary exists, answer 0
 - Answer with ONLY a single integer (e.g. 0, 5, 12)"""
 
-            resp = _llm_call(
-                [{"role": "user", "content": prompt}],
-                temperature=0.0,
-                max_tokens_val=10
-            )
-            result = resp.choices[0].message.content.strip()
-            print(f"[EarlyConfirm] API 응답: '{result}'")
+            if claude_client:
+                resp = claude_client.messages.create(
+                    model=ANTHROPIC_MODEL,
+                    max_tokens=10,
+                    temperature=0.0,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                result = resp.content[0].text.strip()
+            else:
+                resp = _llm_call(
+                    [{"role": "user", "content": prompt}],
+                    temperature=0.0,
+                    max_tokens_val=10
+                )
+                result = resp.choices[0].message.content.strip()
+            print(f"[EarlyConfirm] API 응답: '{result}' ({'Claude' if claude_client else 'OpenAI'})")
 
             # 숫자 파싱
             import re
@@ -4211,6 +4224,7 @@ def startup_diagnostics():
     optional = {
         'sounddevice': 'sounddevice (mic selection)',
         'pyngrok': 'pyngrok (external access)',
+        'anthropic': 'anthropic (Claude for early confirm)',
     }
 
     for mod, name in required.items():
