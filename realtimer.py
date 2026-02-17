@@ -2981,14 +2981,21 @@ class SubtitleOverlay(ResizableWindow):
         try:
             # 단어에 번호를 매겨서 LLM에게 보여줌 → 숫자만 반환받음 (환각 방지)
             numbered = ' '.join([f"[{i+1}]{w}" for i, w in enumerate(words)])
+            if source_language == 'ko':
+                boundary_hint = "- Count only up to a natural sentence boundary (period, question mark, or sentence-ending grammar like 다/요/니다/습니다/겁니다/입니다)"
+            else:
+                boundary_hint = ("- Count only up to a natural sentence boundary (period, question mark, exclamation mark, "
+                                 "or a clause boundary before conjunctions like 'and', 'but', 'so', 'because', 'however', "
+                                 "or after a complete subordinate clause with comma)")
+
             prompt = f"""You are a speech recognition assistant. The following text is being spoken in real-time (not yet complete).
 Each word is numbered like [1]word [2]word ...
 
 Text: {numbered}
 
-How many words from the beginning form complete sentence(s) that are unlikely to change?
-- Count only up to a natural sentence boundary (period, question mark, or sentence-ending grammar like 다/요/니다/습니다/겁니다/입니다)
-- If no clear sentence boundary exists, answer 0
+How many words from the beginning form complete sentence(s) or clause(s) that are unlikely to change?
+{boundary_hint}
+- If no clear boundary exists, answer 0
 - Answer with ONLY a single integer (e.g. 0, 5, 12)"""
 
             resp = _llm_call(
@@ -3013,8 +3020,11 @@ How many words from the beginning form complete sentence(s) that are unlikely to
                 print(f"[EarlyConfirm] 확정 없음 (0이거나 전체)")
                 return
 
-            # 원본 텍스트에서 직접 잘라냄 (환각 불가능)
+            # 확정 텍스트가 너무 짧으면 스킵 (단어 단편 번역 방지)
             confirmed_text = ' '.join(words[:confirm_count])
+            if len(confirmed_text) < 10:
+                print(f"[EarlyConfirm] 확정 텍스트 너무 짧음 ({len(confirmed_text)}자), 스킵")
+                return
             pending_text = ' '.join(words[confirm_count:])
 
             with self._early_confirm_lock:
@@ -3087,8 +3097,10 @@ How many words from the beginning form complete sentence(s) that are unlikely to
             # 타겟 언어 목록
             target_lang_names = [LANGUAGES[lc]['name'] for lc in target_languages if lc in LANGUAGES]
 
-            prompt = f"""you are a aimultanous interpreter in veterinary medicine, medicine, biology and life science. Translate the following text to these languages.: {', '.join(target_lang_names)}.
-{term_hint}
+            ko_hint = "\n- For Korean (ko): MUST use formal polite style (합쇼체/존댓말, ending in ~습니다/~입니다/~됩니다)" if 'ko' in target_languages else ""
+
+            prompt = f"""You are a professional simultaneous interpreter. Translate the following text in a professional tone to these languages: {', '.join(target_lang_names)}.
+{term_hint}{ko_hint}
 Format: Output each translation on a new line with language code prefix like:
 {chr(10).join([f'{lc}: [translation]' for lc in target_languages])}
 
@@ -3126,8 +3138,10 @@ Text: {source_text}"""
             # 타겟 언어 목록
             target_lang_names = [LANGUAGES[lc]['name'] for lc in target_languages if lc in LANGUAGES]
 
-            prompt = f"""Translate the following text naturally to these languages: {', '.join(target_lang_names)}.
-{term_hint}{context}
+            ko_hint = "\n- For Korean (ko): MUST use formal polite style (합쇼체/존댓말, ending in ~습니다/~입니다/~됩니다)" if 'ko' in target_languages else ""
+
+            prompt = f"""You are a professional simultaneous interpreter. Translate the following text naturally and in a professional tone to these languages: {', '.join(target_lang_names)}.
+{term_hint}{context}{ko_hint}
 Format: Output each translation on a new line with language code prefix like:
 {chr(10).join([f'{lc}: [translation]' for lc in target_languages])}
 
@@ -3358,8 +3372,9 @@ Text: {source_text}"""
         """영어 번역문들을 한국어로 역번역 (LLM 경유로 정확도 향상)"""
         try:
             combined = "\n".join([f"{i+1}. {t}" for i, t in enumerate(english_texts)])
-            prompt = f"""You are a professional English-to-Korean translator especiaaly in veterinary medicine and life science, biology.
-Translate each numbered English sentence below into natural Korean.
+            prompt = f"""You are a professional English-to-Korean translator.
+Translate each numbered English sentence below into natural, professional-toned Korean.
+MUST use formal polite style (합쇼체/존댓말, ending in ~습니다/~입니다/~됩니다).
 Keep the numbering. Output ONLY the Korean translations, one per line.
 
 {combined}"""
@@ -4048,22 +4063,64 @@ Format:
         """실시간 번역 임시 텍스트 표시 (별도 영역, 높이 제한+폰트 축소)"""
         self._set_realtime_text(lang_code, text, "realtime")
 
+    def _init_bottom_padding(self, lang_code):
+        """확정 자막이 아래서부터 쌓이도록 빈 패딩 삽입"""
+        tw = self.subtitle_texts.get(lang_code)
+        if not tw:
+            return
+        tw.update_idletasks()
+        # 위젯 높이를 줄 수로 환산하여 빈 줄 삽입
+        widget_h = tw.winfo_height()
+        font = tw.cget("font")
+        import tkinter.font as tkfont
+        line_h = tkfont.Font(font=font).metrics("linespace")
+        if line_h <= 0:
+            line_h = 20
+        pad_lines = max(0, widget_h // line_h)
+        tw.config(state="normal")
+        tw.delete("1.0", "end")
+        tw.insert("1.0", "\n" * pad_lines, "pad")
+        tw.tag_configure("pad", foreground=COLORS['bg_card'])  # 투명하게
+        tw.config(state="disabled")
+        tw.see("end")
+        if not hasattr(self, '_bottom_pad_lines'):
+            self._bottom_pad_lines = {}
+        self._bottom_pad_lines[lang_code] = pad_lines
+
     def _append_final(self, lang_code, text):
-        """확정 번역을 누적 추가 — 부드러운 스크롤로 올라감"""
+        """확정 번역을 누적 추가 — 아래서부터 쌓임"""
         import re
         tw = self.subtitle_texts.get(lang_code)
         if not tw:
             return
         self._clear_realtime(lang_code)
+
+        # 최초 호출 시 패딩 초기화
+        if not hasattr(self, '_bottom_pad_lines'):
+            self._bottom_pad_lines = {}
+        if lang_code not in self._bottom_pad_lines:
+            self._init_bottom_padding(lang_code)
+
         # 문장 단위 줄바꿈: 문장 끝 부호 뒤 공백을 줄바꿈으로 변환
         formatted = re.sub(r'([.!?])\s+', r'\1\n\n', text.strip())
+        new_lines = formatted.count('\n') + 1
+
         tw.config(state="normal")
-        if tw.get("1.0", "end").strip():
+        # 상단 패딩 줄 제거 (새 자막 줄 수만큼)
+        pad_remaining = self._bottom_pad_lines.get(lang_code, 0)
+        remove_count = min(new_lines + 1, pad_remaining)  # +1 for spacing
+        if remove_count > 0:
+            tw.delete("1.0", f"{remove_count + 1}.0")
+            self._bottom_pad_lines[lang_code] = pad_remaining - remove_count
+
+        # 자막 추가
+        content = tw.get("1.0", "end").strip()
+        if content:
             tw.insert("end", "\n\n" + formatted, "final")
         else:
             tw.insert("end", formatted, "final")
         tw.config(state="disabled")
-        # 점프 없이 부드럽게 끝까지 스크롤
+        # 부드럽게 끝까지 스크롤
         self._smooth_scroll_to_end(tw)
 
     def _show_dim(self, lang_code, text):
