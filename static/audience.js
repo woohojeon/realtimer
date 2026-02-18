@@ -13,27 +13,13 @@ let currentSubtitle = '';
 let isTTSEnabled = false;
 let ttsSpeed = 1.0;
 let isSpeaking = false;
-let speechSynthesis = window.speechSynthesis;
-let pendingTTS = null;
+let ttsAudioEl = null;  // 재사용 <audio> 엘리먼트
+let ttsQueue = [];       // TTS 오디오 재생 큐
 let subtitleFontSize = 1.35; // rem
 
 const FONT_SIZE_MIN = 0.8;
 const FONT_SIZE_MAX = 3.0;
 const FONT_SIZE_STEP = 0.2;
-
-// TTS 언어 코드 매핑
-const TTS_LANG_MAP = {
-    'ko': 'ko-KR',
-    'en': 'en-US',
-    'ja': 'ja-JP',
-    'zh': 'zh-CN',
-    'es': 'es-ES',
-    'fr': 'fr-FR',
-    'de': 'de-DE',
-    'pt': 'pt-BR',
-    'ru': 'ru-RU',
-    'vi': 'vi-VN'
-};
 
 // 문장 종결 패턴 (다국어)
 const SENTENCE_END_RE = /(?<=[.!?。！？])\s*/;
@@ -127,6 +113,14 @@ function initSocket() {
 
     socket.on('languages_update', handleLanguagesUpdate);
     socket.on('subtitle_update', handleSubtitleUpdate);
+
+    // Azure Neural TTS 응답
+    socket.on('tts_audio', handleTTSAudio);
+    socket.on('tts_error', (data) => {
+        console.warn('[TTS] Server error:', data.error);
+        isSpeaking = false;
+        btnSpeak.classList.remove('speaking');
+    });
 }
 
 function updateConnectionStatus(status) {
@@ -249,56 +243,114 @@ function resetRealtimeText() {
 }
 
 // ========================
-// TTS (Text-to-Speech)
+// TTS (Azure Neural TTS via server)
 // ========================
+
+// 무음 MP3 (극소 크기) — <audio> 엘리먼트를 사용자 제스처로 활성화하기 위한 용도
+const SILENT_MP3 = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRwMHAAAAAAD/+1DEAAAHAAGf9AAAIgAANIAAAAS7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//tQxBcAAADSAAAAAAAAANIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+
+/**
+ * <audio> 엘리먼트를 생성하고 무음 재생으로 활성화 (사용자 제스처 내에서 호출해야 함)
+ */
+function warmUpAudioElement() {
+    if (ttsAudioEl) return;
+    ttsAudioEl = new Audio();
+    ttsAudioEl.src = SILENT_MP3;
+    ttsAudioEl.play().then(() => {
+        console.log('[TTS] Audio element warmed up');
+    }).catch(e => {
+        console.warn('[TTS] Audio warm-up failed:', e);
+    });
+}
+
 function checkTTSSupport() {
-    if (!('speechSynthesis' in window)) {
-        ttsToggle.disabled = true;
-        btnSpeak.disabled = true;
-        document.querySelector('.tts-label').textContent = 'N/A';
-    }
+    // 서버 TTS이므로 항상 활성화
 }
 
 function speakText(text) {
-    if (!text || !speechSynthesis) return;
+    if (!text || !socket) return;
 
-    speechSynthesis.cancel();
+    console.log('[TTS] Requesting:', selectedLanguage, text.substring(0, 50));
+    socket.emit('request_tts', {
+        text: text,
+        lang: selectedLanguage || 'en',
+        speed: ttsSpeed
+    });
+}
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = TTS_LANG_MAP[selectedLanguage] || 'en-US';
-    utterance.rate = ttsSpeed;
-    utterance.pitch = 1;
+function handleTTSAudio(data) {
+    console.log('[TTS] Audio received:', data.audio ? data.audio.length + ' chars' : 'empty');
 
-    const voices = speechSynthesis.getVoices();
-    const langVoice = voices.find(v => v.lang.startsWith(selectedLanguage) || v.lang === utterance.lang);
-    if (langVoice) {
-        utterance.voice = langVoice;
+    try {
+        const byteChars = atob(data.audio);
+        const byteArray = new Uint8Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) {
+            byteArray[i] = byteChars.charCodeAt(i);
+        }
+        const blob = new Blob([byteArray], { type: 'audio/mp3' });
+        const url = URL.createObjectURL(blob);
+
+        // 큐에 추가하고, 현재 재생 중이 아니면 재생 시작
+        ttsQueue.push(url);
+        if (!isSpeaking) {
+            playNextInQueue();
+        }
+    } catch (e) {
+        console.warn('[TTS] handleTTSAudio error:', e);
+    }
+}
+
+function playNextInQueue() {
+    if (ttsQueue.length === 0) {
+        isSpeaking = false;
+        btnSpeak.classList.remove('speaking');
+        return;
     }
 
-    utterance.onstart = () => {
+    if (!ttsAudioEl) {
+        ttsAudioEl = new Audio();
+    }
+
+    const url = ttsQueue.shift();
+
+    // 기존 blob URL 정리
+    if (ttsAudioEl._blobUrl) {
+        URL.revokeObjectURL(ttsAudioEl._blobUrl);
+    }
+    ttsAudioEl._blobUrl = url;
+
+    ttsAudioEl.onplay = () => {
         isSpeaking = true;
         btnSpeak.classList.add('speaking');
     };
-
-    utterance.onend = () => {
-        isSpeaking = false;
-        btnSpeak.classList.remove('speaking');
+    ttsAudioEl.onended = () => {
+        // 다음 큐 재생
+        playNextInQueue();
+    };
+    ttsAudioEl.onerror = (e) => {
+        console.warn('[TTS] Playback error:', e);
+        playNextInQueue();
     };
 
-    utterance.onerror = () => {
-        isSpeaking = false;
-        btnSpeak.classList.remove('speaking');
-    };
-
-    speechSynthesis.speak(utterance);
+    ttsAudioEl.src = url;
+    ttsAudioEl.play().then(() => {
+        console.log('[TTS] Playing, queue:', ttsQueue.length, 'remaining');
+    }).catch(e => {
+        console.warn('[TTS] Play failed:', e);
+        playNextInQueue();
+    });
 }
 
 function stopSpeaking() {
-    if (speechSynthesis) {
-        speechSynthesis.cancel();
-        isSpeaking = false;
-        btnSpeak.classList.remove('speaking');
+    // 큐 비우고 현재 재생 중지
+    ttsQueue.forEach(url => URL.revokeObjectURL(url));
+    ttsQueue = [];
+    if (ttsAudioEl) {
+        ttsAudioEl.pause();
+        ttsAudioEl.currentTime = 0;
     }
+    isSpeaking = false;
+    btnSpeak.classList.remove('speaking');
 }
 
 // ========================
@@ -323,6 +375,10 @@ function initEventListeners() {
     isTTSEnabled = false;
     ttsToggle.addEventListener('change', (e) => {
         isTTSEnabled = e.target.checked;
+        // 토글 ON 시 사용자 제스처로 <audio> 활성화 (모바일 autoplay 우회)
+        if (isTTSEnabled) {
+            warmUpAudioElement();
+        }
     });
 
     // TTS speed
@@ -342,6 +398,7 @@ function initEventListeners() {
 
     // Speak button
     btnSpeak.addEventListener('click', () => {
+        warmUpAudioElement();
         if (isSpeaking) {
             stopSpeaking();
         } else if (currentSubtitle) {
@@ -356,8 +413,4 @@ function initEventListeners() {
     fontIncrease.addEventListener('click', () => changeFontSize(FONT_SIZE_STEP));
     fontDecrease.addEventListener('click', () => changeFontSize(-FONT_SIZE_STEP));
 
-    // Load voices
-    if (speechSynthesis) {
-        speechSynthesis.onvoiceschanged = () => {};
-    }
 }

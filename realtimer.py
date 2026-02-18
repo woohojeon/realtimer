@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 import sys
 import time
 import ctypes
+import subprocess
 
 # 웹 서버 (청중용 QR TTS)
 try:
@@ -2637,7 +2638,7 @@ class SubtitleOverlay(ResizableWindow):
         # 모드 표시 (Public/Local)
         mode_label = tk.Label(
             qr_window,
-            text="Public (ngrok)" if is_public[0] else "Local Network",
+            text="Public" if is_public[0] else "Local Network",
             font=("Segoe UI", 10, "bold"),
             fg=COLORS['success'] if is_public[0] else COLORS['secondary'],
             bg=COLORS['bg_card']
@@ -2702,7 +2703,7 @@ class SubtitleOverlay(ResizableWindow):
 
             # 모드 표시 업데이트
             if is_public[0]:
-                mode_label.config(text="Public (ngrok)", fg=COLORS['success'])
+                mode_label.config(text="Public", fg=COLORS['success'])
             else:
                 mode_label.config(text="Local Network", fg=COLORS['secondary'])
 
@@ -2973,6 +2974,9 @@ class SubtitleOverlay(ResizableWindow):
 
             if remaining:
                 subtitle_queue.put(("recognized", remaining))
+                # 웹 클라이언트에 즉시 전송 (check_queue 폴링 대기 없이)
+                if WEB_SERVER_SUPPORT:
+                    web_server.broadcast_subtitle("recognized", remaining)
             else:
                 print(f"[EarlyConfirm] on_recognized: 전부 조기확정됨, 스킵")
 
@@ -3133,6 +3137,9 @@ Text: {source_text}"""
                     translations[lang_code] = translation
 
             subtitle_queue.put(("realtime", translations))
+            # 웹 클라이언트에 즉시 전송 (check_queue 폴링 대기 없이)
+            if WEB_SERVER_SUPPORT:
+                web_server.broadcast_subtitle("realtime", translations)
         except Exception as e:
             pass
 
@@ -3176,6 +3183,9 @@ Text: {source_text}"""
             history.append((source_text, translations))
             self.full_history.append((source_text, translations))
             subtitle_queue.put(("final", translations))
+            # 웹 클라이언트에 즉시 전송 (check_queue 폴링 대기 없이)
+            if WEB_SERVER_SUPPORT:
+                web_server.broadcast_subtitle("final", translations)
         except Exception as e:
             pass
 
@@ -4148,9 +4158,8 @@ Format:
             while True:
                 msg_type, data = subtitle_queue.get_nowait()
 
-                # 웹 서버로 브로드캐스트 (청중용 TTS)
-                if WEB_SERVER_SUPPORT:
-                    web_server.broadcast_subtitle(msg_type, data)
+                # 웹 브로드캐스트는 번역 스레드에서 직접 전송하므로 여기서는 스킵
+                # (tkinter UI 업데이트만 수행)
 
                 if msg_type == "realtime":
                     if data != last_realtime_translation:
@@ -4224,7 +4233,7 @@ def startup_diagnostics():
     }
     optional = {
         'sounddevice': 'sounddevice (mic selection)',
-        'pyngrok': 'pyngrok (external access)',
+        # cloudflared는 시스템 바이너리이므로 import 체크 불필요
         'anthropic': 'anthropic (Claude for early confirm)',
     }
 
@@ -4240,10 +4249,11 @@ def startup_diagnostics():
         except ImportError:
             warnings.append(f"Missing optional package: {name}")
 
-    # 3. ngrok 토큰 확인
-    ngrok_token = os.environ.get('NGROK_AUTH_TOKEN', '')
-    if not ngrok_token:
-        warnings.append("NGROK_AUTH_TOKEN not set (external access disabled)")
+    # 3. cloudflared 확인
+    try:
+        subprocess.run(['cloudflared', '--version'], capture_output=True, timeout=5)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        warnings.append("cloudflared not installed (external access disabled)")
 
     # 4. 웹 서버 모듈 확인
     if not WEB_SERVER_SUPPORT:

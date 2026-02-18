@@ -9,6 +9,8 @@ import qrcode
 import io
 import base64
 import os
+import azure.cognitiveservices.speech as speechsdk
+from xml.sax.saxutils import escape as xml_escape
 from flask import Flask, render_template, jsonify
 from flask_socketio import SocketIO, emit
 
@@ -26,26 +28,36 @@ else:
     _base_dir = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(_base_dir, '.env'))
 
-# ngrok 지원
+import re
+
+# cloudflared 지원 확인
+CLOUDFLARED_AVAILABLE = False
 try:
-    from pyngrok import ngrok as pyngrok, conf as pyngrok_conf
-    NGROK_AVAILABLE = True
-    # .env에서 auth token 설정
-    ngrok_token = os.environ.get('NGROK_AUTH_TOKEN', '')
-    if ngrok_token:
-        pyngrok_conf.get_default().auth_token = ngrok_token
-        print("[WebServer] ngrok auth token loaded.")
-    else:
-        print("[WebServer] NGROK_AUTH_TOKEN not found in .env")
-        NGROK_AVAILABLE = False
-except ImportError:
-    NGROK_AVAILABLE = False
-    print("[WebServer] pyngrok not installed. External access disabled.")
+    _cf_check = subprocess.run(['cloudflared', '--version'], capture_output=True, text=True, timeout=5)
+    if _cf_check.returncode == 0:
+        CLOUDFLARED_AVAILABLE = True
+        print(f"[WebServer] cloudflared found: {_cf_check.stdout.strip()}")
+except (FileNotFoundError, subprocess.TimeoutExpired):
+    print("[WebServer] cloudflared not installed. External access disabled.")
 
 # Flask 앱 설정
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'lecture-lens-secret-key'
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+
+# Azure Neural TTS 음성 매핑 (voice_name, xml:lang locale)
+NEURAL_VOICES = {
+    'ko': ('ko-KR-SunHiNeural', 'ko-KR'),
+    'en': ('en-US-JennyNeural', 'en-US'),
+    'ja': ('ja-JP-NanamiNeural', 'ja-JP'),
+    'zh': ('zh-CN-XiaoxiaoNeural', 'zh-CN'),
+    'es': ('es-ES-ElviraNeural', 'es-ES'),
+    'fr': ('fr-FR-DeniseNeural', 'fr-FR'),
+    'de': ('de-DE-KatjaNeural', 'de-DE'),
+    'pt': ('pt-BR-FranciscaNeural', 'pt-BR'),
+    'ru': ('ru-RU-SvetlanaNeural', 'ru-RU'),
+    'vi': ('vi-VN-HoaiMyNeural', 'vi-VN'),
+}
 
 # 전역 상태
 connected_clients = 0
@@ -99,7 +111,7 @@ class WebServer:
         self.public_url = None
         self.server_url = None
         self.qr_code_base64 = None
-        self.ngrok_tunnel = None
+        self._cf_process = None  # cloudflared 프로세스
 
     def set_languages(self, languages_dict, source_lang, target_langs):
         """사용 가능한 언어 설정"""
@@ -130,7 +142,7 @@ class WebServer:
             })
 
     def start(self):
-        """서버 시작 (ngrok 터널로 외부 접속 지원)"""
+        """서버 시작 (cloudflared 터널로 외부 접속 지원)"""
         if self.is_running:
             return
 
@@ -149,47 +161,58 @@ class WebServer:
         self.is_running = True
         print(f"[WebServer] Local server started at {self.local_url}")
 
-        # ngrok 터널 시작 (별도 스레드에서 실행하여 메인 기능에 영향 없도록)
-        if NGROK_AVAILABLE:
-            def start_ngrok_tunnel():
+        # cloudflared 터널 시작 (별도 스레드, 완료 시 이벤트 통지)
+        self._tunnel_ready = threading.Event()
+        if CLOUDFLARED_AVAILABLE:
+            def start_cloudflared_tunnel():
                 import time
                 print("[WebServer] Waiting for server ready...")
                 time.sleep(2)
                 try:
-                    print("[WebServer] Starting ngrok tunnel...")
-                    # PyInstaller frozen 환경에서 subprocess 문제 회피
-                    if IS_FROZEN:
-                        import os
-                        os.environ['PYTHONIOENCODING'] = 'utf-8'
-                    self.ngrok_tunnel = pyngrok.connect(self.port, "http")
-                    self.public_url = self.ngrok_tunnel.public_url
-                    self.server_url = self.public_url
-                    self.qr_code_base64 = generate_qr_code(self.server_url)
-                    print(f"[WebServer] ngrok tunnel: {self.public_url}")
+                    print("[WebServer] Starting cloudflared tunnel...")
+                    self._cf_process = subprocess.Popen(
+                        ['cloudflared', 'tunnel', '--url', f'http://localhost:{self.port}'],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True
+                    )
+                    # cloudflared 출력에서 public URL 파싱
+                    for line in self._cf_process.stdout:
+                        match = re.search(r'https://[a-z0-9-]+\.trycloudflare\.com', line)
+                        if match:
+                            self.public_url = match.group(0)
+                            self.server_url = self.public_url
+                            print(f"[WebServer] cloudflared tunnel: {self.public_url}")
+                            break
+                    if not self.public_url:
+                        print("[WebServer] cloudflared: URL not found, using local URL")
                 except Exception as e:
-                    import traceback
-                    print(f"[WebServer] ngrok failed, using local URL: {e}")
-                    traceback.print_exc()
+                    print(f"[WebServer] cloudflared failed, using local URL: {e}")
                     self.public_url = None
-                    # ngrok 실패해도 local URL로 계속 동작
-                    print(f"[WebServer] Continuing with local URL: {self.local_url}")
+                finally:
+                    self._tunnel_ready.set()
 
-            # 별도 스레드에서 ngrok 시작 (메인 기능 블로킹 방지)
-            ngrok_thread = threading.Thread(target=start_ngrok_tunnel, daemon=True)
-            ngrok_thread.start()
+            threading.Thread(target=start_cloudflared_tunnel, daemon=True).start()
+        else:
+            self._tunnel_ready.set()
 
-        # QR 코드 생성
-        self.qr_code_base64 = generate_qr_code(self.server_url)
-        print(f"[WebServer] QR URL: {self.server_url}")
+        # 터널 완료 대기 후 QR 생성 (별도 스레드 — UI 블로킹 방지)
+        def wait_and_generate_qr():
+            self._tunnel_ready.wait(timeout=20)
+            self.qr_code_base64 = generate_qr_code(self.server_url)
+            print(f"[WebServer] QR URL: {self.server_url}")
+
+        threading.Thread(target=wait_and_generate_qr, daemon=True).start()
 
     def stop(self):
         """서버 중지"""
-        if self.ngrok_tunnel and NGROK_AVAILABLE:
+        if self._cf_process:
             try:
-                pyngrok.disconnect(self.ngrok_tunnel.public_url)
+                self._cf_process.terminate()
+                self._cf_process.wait(timeout=5)
             except Exception:
                 pass
-            self.ngrok_tunnel = None
+            self._cf_process = None
         self.is_running = False
         print("[WebServer] Stopped")
 
@@ -286,3 +309,56 @@ def handle_request_languages():
         'languages': available_languages,
         'source': source_language_info
     })
+
+
+@socketio.on('request_tts')
+def handle_request_tts(data):
+    """Azure Neural TTS 음성 합성 요청"""
+    text = data.get('text', '')
+    lang = data.get('lang', 'en')
+    speed = data.get('speed', 1.0)
+    print(f"[TTS] Request received: lang={lang}, speed={speed}, text='{text[:50]}'")
+
+    if not text:
+        emit('tts_error', {'error': 'No text provided'})
+        return
+
+    try:
+        speech_key = os.environ.get('SPEECH_KEY', '')
+        speech_region = os.environ.get('SPEECH_REGION', 'eastus')
+        if not speech_key:
+            print("[TTS] ERROR: SPEECH_KEY not set")
+            emit('tts_error', {'error': 'Azure Speech key not configured'})
+            return
+
+        speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=speech_region)
+        speech_config.set_speech_synthesis_output_format(
+            speechsdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitRateMonoMp3
+        )
+
+        synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=None)
+
+        voice_name, voice_locale = NEURAL_VOICES.get(lang, ('en-US-JennyNeural', 'en-US'))
+        rate_percent = int((speed - 1.0) * 100)
+        rate_str = f"+{rate_percent}%" if rate_percent >= 0 else f"{rate_percent}%"
+
+        safe_text = xml_escape(text)
+        ssml = f"""<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="{voice_locale}">
+  <voice name="{voice_name}">
+    <prosody rate="{rate_str}">{safe_text}</prosody>
+  </voice>
+</speak>"""
+
+        result = synthesizer.speak_ssml_async(ssml).get()
+
+        if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+            audio_b64 = base64.b64encode(result.audio_data).decode('utf-8')
+            print(f"[TTS] Success: {len(result.audio_data)} bytes → sending to client")
+            emit('tts_audio', {'audio': audio_b64, 'format': 'mp3'})
+        else:
+            cancellation = result.cancellation_details
+            print(f"[TTS] Synthesis failed: {cancellation.reason} - {cancellation.error_details}")
+            emit('tts_error', {'error': 'Synthesis failed'})
+    except Exception as e:
+        print(f"[TTS] Error: {e}")
+        emit('tts_error', {'error': str(e)})
