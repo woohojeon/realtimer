@@ -112,6 +112,7 @@ class WebServer:
         self.server_url = None
         self.qr_code_base64 = None
         self._cf_process = None  # cloudflared 프로세스
+        self._qr_ready_callbacks = []
 
     def set_languages(self, languages_dict, source_lang, target_langs):
         """사용 가능한 언어 설정"""
@@ -201,6 +202,11 @@ class WebServer:
             self._tunnel_ready.wait(timeout=20)
             self.qr_code_base64 = generate_qr_code(self.server_url)
             print(f"[WebServer] QR URL: {self.server_url}")
+            for cb in self._qr_ready_callbacks:
+                try:
+                    cb()
+                except Exception:
+                    pass
 
         threading.Thread(target=wait_and_generate_qr, daemon=True).start()
 
@@ -215,6 +221,10 @@ class WebServer:
             self._cf_process = None
         self.is_running = False
         print("[WebServer] Stopped")
+
+    def register_qr_ready_callback(self, cb):
+        """QR 코드 준비 완료 시 호출할 콜백 등록"""
+        self._qr_ready_callbacks.append(cb)
 
     def get_qr_code(self):
         """QR 코드 이미지 (Base64) 반환"""

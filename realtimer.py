@@ -2450,16 +2450,14 @@ class SubtitleOverlay(ResizableWindow):
             fg=COLORS['text_dim'], bg=COLORS['bg_btn'], padx=4, pady=8)
         sep_label.pack(side="left")
 
-        # QR 코드 버튼 (웹 서버 지원 시)
+        # QR 코드 버튼 (웹 서버 지원 시) — QR 준비 완료 전까지 비활성
         if WEB_SERVER_SUPPORT:
             self.qr_btn = tk.Label(
                 opacity_frame, text="QR", font=("Segoe UI", 9),
-                fg=COLORS['text_dim'], bg=COLORS['bg_btn'], cursor="hand2", padx=8, pady=8
+                fg=COLORS['text_dim'], bg=COLORS['bg_btn'], cursor="arrow", padx=8, pady=8
             )
             self.qr_btn.pack(side="left", padx=1)
-            self.qr_btn.bind("<Button-1>", lambda e: self.show_qr_popup())
-            self.qr_btn.bind("<Enter>", lambda e: self.qr_btn.config(fg=COLORS['primary']))
-            self.qr_btn.bind("<Leave>", lambda e: self.qr_btn.config(fg=COLORS['text_dim']))
+            # 클릭/호버 이벤트는 QR 준비 후 _enable_qr_btn()에서 바인딩
 
             self.client_count_label = tk.Label(
                 opacity_frame, text="0", font=("Segoe UI", 8),
@@ -2596,9 +2594,22 @@ class SubtitleOverlay(ResizableWindow):
         """청중용 웹 서버 시작"""
         try:
             web_server.set_languages(LANGUAGES, source_language, target_languages)
+            web_server.register_qr_ready_callback(self._on_qr_ready)
             web_server.start()
         except Exception as e:
             pass
+
+    def _on_qr_ready(self):
+        """QR 코드 준비 완료 콜백 (웹 서버 스레드에서 호출됨 → tkinter 스레드로 전달)"""
+        if hasattr(self, 'qr_btn'):
+            self.root.after(0, self._enable_qr_btn)
+
+    def _enable_qr_btn(self):
+        """QR 버튼 활성화 (tkinter 메인 스레드에서 실행)"""
+        self.qr_btn.config(fg=COLORS['text_secondary'], cursor="hand2")
+        self.qr_btn.bind("<Button-1>", lambda e: self.show_qr_popup())
+        self.qr_btn.bind("<Enter>", lambda e: self.qr_btn.config(fg=COLORS['primary']))
+        self.qr_btn.bind("<Leave>", lambda e: self.qr_btn.config(fg=COLORS['text_secondary']))
 
     def update_client_count(self):
         """접속자 수 업데이트"""
